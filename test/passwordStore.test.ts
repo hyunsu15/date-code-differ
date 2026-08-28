@@ -6,8 +6,11 @@ import {
   forgetPassword,
   getPassword,
   hasPassword,
+  normalizeConnectionTarget,
+  pendingConnection,
   registeredConnections,
   setPassword,
+  setPendingConnection,
 } from '../server/source/passwordStore.ts'
 
 /**
@@ -68,4 +71,62 @@ test('특수문자 비밀번호도 그대로 보관한다', () => {
   const tricky = 'p@ss&w|o<r>d^%!"\ 한글'
   setPassword('u@h:22', tricky)
   assert.equal(getPassword('u@h:22'), tricky)
+})
+
+/* ---------------- 사람이 적은 대상 맞추기 ---------------- */
+
+test('포트를 생략하면 22 로 채운다 — 보관 키와 같은 형태가 되어야 한다', () => {
+  assert.equal(normalizeConnectionTarget('deploy@build-01'), 'deploy@build-01:22')
+  assert.equal(normalizeConnectionTarget('deploy@build-01:22'), 'deploy@build-01:22')
+  assert.equal(
+    normalizeConnectionTarget('deploy@build-01'),
+    connectionKey({ user: 'deploy', host: 'build-01', port: null })
+  )
+})
+
+test('포트를 적으면 그대로 쓴다', () => {
+  assert.equal(normalizeConnectionTarget('deploy@build-01:2222'), 'deploy@build-01:2222')
+})
+
+test('앞뒤 공백은 떼어낸다', () => {
+  assert.equal(normalizeConnectionTarget('  deploy@build-01:22  '), 'deploy@build-01:22')
+})
+
+test('형식이 아니면 null', () => {
+  const bad = [
+    '',
+    'build-01',            // 계정이 없다
+    '@build-01',           // 계정이 비었다
+    'deploy@',             // 호스트가 비었다
+    'deploy@host:0',       // 포트 범위 밖
+    'deploy@host:70000',
+    'deploy@host:abc',     // 포트가 숫자가 아니다
+    'deploy@host:22:22',   // 호스트에 콜론
+    'dep loy@host:22',     // 공백
+    'deploy@ho st:22',
+  ]
+  for (const value of bad) assert.equal(normalizeConnectionTarget(value), null, value)
+})
+
+/* ---------------- 기다리는 대상 ---------------- */
+
+test('처음에는 기다리는 대상이 없다', () => {
+  assert.equal(pendingConnection(), null)
+})
+
+test('비밀번호가 필요했던 접속을 기억한다 — ssh-login 이 이걸 기본 대상으로 쓴다', () => {
+  setPendingConnection('deploy@build-01:2222')
+  assert.equal(pendingConnection(), 'deploy@build-01:2222')
+})
+
+test('기다리는 대상에는 비밀번호가 들어가지 않는다', () => {
+  setPassword('deploy@build-01:2222', 'secret')
+  setPendingConnection('deploy@build-01:2222')
+  assert.equal(JSON.stringify(pendingConnection()).includes('secret'), false)
+})
+
+test('전부 지우면 기다리던 대상도 지운다 ("처음부터 다시" 라는 뜻)', () => {
+  setPendingConnection('deploy@build-01:2222')
+  forgetAllPasswords()
+  assert.equal(pendingConnection(), null)
 })

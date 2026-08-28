@@ -2,7 +2,12 @@ import { execFile, type ExecException } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { safeRelativePath } from '../../src/lib/fileTypes.ts'
-import { connectionKey, forgetPassword, getPassword } from './passwordStore.ts'
+import {
+  connectionKey,
+  forgetPassword,
+  getPassword,
+  setPendingConnection,
+} from './passwordStore.ts'
 import {
   buildSshArgs,
   existsCommand,
@@ -124,6 +129,8 @@ export class SshSource implements SnapshotSource {
   ): Promise<Buffer | null> {
     // 비밀번호 인증인데 아직 비밀번호가 없으면, 물어보다 멈추지 말고 바로 알린다
     if (this.conn.auth === 'password' && !getPassword(connectionKey(this.conn))) {
+      // 화면이 실제로 쓰는 대상을 남긴다 — ssh-login 이 config 대신 이 서버를 기본으로 묻는다
+      setPendingConnection(connectionKey(this.conn))
       return Promise.reject(
         new SourceError(
           `${connectionKey(this.conn)} 의 비밀번호가 없습니다.\n` +
@@ -179,6 +186,7 @@ function toSourceError(
     if (conn.auth === 'password') {
       // 틀린 비밀번호를 계속 들고 있으면 같은 실패를 반복한다 — 지워서 다시 받게 한다
       forgetPassword(connectionKey(conn))
+      setPendingConnection(connectionKey(conn))
       return new SourceError(
         '비밀번호 인증에 실패했습니다.\n' +
           '터미널에서 `npm run ssh-login` 으로 다시 입력하세요.\n\n' +

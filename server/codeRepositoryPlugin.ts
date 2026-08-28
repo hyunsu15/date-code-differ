@@ -9,7 +9,13 @@ import {
 } from './snapshotRepository.ts'
 import { clearComparisonCache, compareSnapshots, readFilePair } from './comparisonService.ts'
 import { createSource, sourceKey } from './source/resolve.ts'
-import { forgetAllPasswords, setPassword } from './source/passwordStore.ts'
+import {
+  forgetAllPasswords,
+  normalizeConnectionTarget,
+  pendingConnection,
+  registeredConnections,
+  setPassword,
+} from './source/passwordStore.ts'
 import { SourceError, type SnapshotSource } from './source/types.ts'
 import type {
   DiffOptions,
@@ -33,7 +39,11 @@ import type {
  *
  *   POST /api/v1/ssh-credentials   { target, password }
  *
- * 이 엔드포인트는 터미널의 `npm run ssh-login` 만 호출한다 —
+ * 짝이 되는 조회는 **대상만** 알려준다 (비밀번호 값은 어떤 경로로도 나가지 않는다).
+ *
+ *   GET  /api/v1/ssh-credentials   → { pending, registered }
+ *
+ * 이 두 엔드포인트는 터미널의 `npm run ssh-login` 만 호출한다 —
  * 브라우저는 비밀번호를 다루지 않는다.
  */
 
@@ -92,6 +102,13 @@ function createHandler(cfg: RepositoryConfig, projectRoot: string): Connect.Next
     }
     if (req.method !== 'GET') {
       next()
+      return
+    }
+
+    // 어느 접속이 비밀번호를 기다리는지 — `npm run ssh-login` 전용.
+    // **대상만** 알려준다. 비밀번호 값은 어떤 경로로도 나가지 않는다.
+    if (pathname === '/ssh-credentials') {
+      sendJson(res, 200, { pending: pendingConnection(), registered: registeredConnections() })
       return
     }
 
@@ -210,11 +227,13 @@ async function receiveCredentials(req: IncomingMessage, res: ServerResponse): Pr
     const body = await readJsonBody(req)
     const value = (body ?? {}) as Record<string, unknown>
 
-    const target = typeof value.target === 'string' ? value.target.trim() : ''
+    const raw = typeof value.target === 'string' ? value.target : ''
     const password = typeof value.password === 'string' ? value.password : ''
 
-    if (!/^[^@\s]+@[^:\s]+:\d+$/.test(target)) {
-      sendError(res, 400, 'BAD_TARGET', 'target 은 user@host:port 형식이어야 합니다.')
+    // 포트를 생략하면 22 로 채워 화면이 찾는 키와 같은 형태로 맞춘다
+    const target = normalizeConnectionTarget(raw)
+    if (target === null) {
+      sendError(res, 400, 'BAD_TARGET', 'target 은 user@host[:port] 형식이어야 합니다.')
       return
     }
     if (!password) {
