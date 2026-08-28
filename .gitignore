@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+
+# 실제로 쓰는 설정 — 서버 주소·계정이 들어가므로 커밋하지 않는다.
+# 없으면 change/config.example.ts 를 복사해 자동으로 만들어 준다 (scripts/ensure-config.mjs).
+change/config.ts

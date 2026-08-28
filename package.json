@@ -1,0 +1,36 @@
+{
+  "name": "code-diff",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "날짜 스냅샷 기준 Pro*C(.pc) 소스 Diff 비교 도구",
+  "scripts": {
+    "postinstall": "node scripts/ensure-config.mjs",
+    "predev": "node scripts/ensure-config.mjs",
+    "dev": "vite",
+    "ssh-login": "node scripts/ssh-login.mjs",
+    "prebuild": "node scripts/ensure-config.mjs",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "pretypecheck": "node scripts/ensure-config.mjs",
+    "typecheck": "tsc --noEmit",
+    "pretest": "node scripts/ensure-config.mjs",
+    "test": "node --test test/*.test.ts"
+  },
+  "dependencies": {
+    "diff": "^7.0.0",
+    "prismjs": "^1.29.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/diff": "^7.0.2",
+    "@types/node": "^26.2.0",
+    "@types/prismjs": "^1.26.6",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}

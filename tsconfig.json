@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+
+    /* 번들러(Vite)가 컴파일을 담당하므로 tsc 는 타입 검사만 한다.
+       allowImportingTsExtensions 로 소스에서 .ts/.tsx 확장자를 그대로 쓰면
+       Vite 는 물론 Node 의 타입 스트리핑(npm test)에서도 그대로 해석된다. */
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": false,
+
+    "types": ["vite/client", "node"]
+  },
+  "include": ["src", "server", "change", "test", "vite.config.ts"]
+}
