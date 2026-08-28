@@ -3,7 +3,8 @@
 개발/미리보기 서버에 붙는 **읽기 전용** API. 외부 폴더를 수정하는 동작은 없다.
 
 기본 경로: `/api/v1`
-지원 메서드: `GET` 만. 그 외 메서드는 404 로 떨어진다.
+지원 메서드: 조회는 `GET`. 비밀번호 등록만 `POST` 하나이고(아래 0번),
+그 밖의 메서드는 404 로 떨어진다.
 
 ---
 
@@ -112,8 +113,34 @@ POST /api/v1/ssh-credentials
 | 비밀번호가 빔 | `EMPTY_PASSWORD` | 400 |
 | 본문을 읽지 못함 | `BAD_REQUEST` | 400 |
 
+`target` 은 포트를 생략하면 **22 로 채워** 보관한다 (`deploy@build-01` → `deploy@build-01:22`).
+화면이 찾는 키와 형태가 어긋나면, 넣었는데도 "비밀번호가 없습니다" 가 계속 뜨기 때문이다.
+
 값은 로그에 남기지 않는다. 서버를 끄면 사라지고,
 `GET /snapshots?refresh=1&forgetPassword=1` 로도 비울 수 있다.
+
+### 어느 접속이 비밀번호를 기다리는지
+
+```
+GET /api/v1/ssh-credentials
+```
+
+`npm run ssh-login` 전용이다. **대상만** 알려준다 — 비밀번호 값은 어떤 경로로도 나가지 않는다.
+
+**200 OK**
+
+```json
+{ "pending": "deploy@build-01:2222", "registered": ["deploy@build-01:2222"] }
+```
+
+| 필드 | 타입 | 의미 |
+| ---- | ---- | ---- |
+| `pending` | String \| null | 마지막으로 비밀번호가 없거나 틀려서 막힌 접속. 아직 없으면 `null` |
+| `registered` | String[] | 지금 비밀번호를 들고 있는 접속 목록 |
+
+화면은 `change/config.ts` 의 프리셋이 아니라 **직접 입력** 값을 쓸 수도 있다.
+`pending` 이 있어야 `ssh-login` 이 화면과 같은 대상에 비밀번호를 넣을 수 있다.
+`GET /snapshots?refresh=1&forgetPassword=1` 은 `pending` 도 함께 비운다.
 
 ---
 
