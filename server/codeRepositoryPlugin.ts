@@ -24,7 +24,7 @@ import type {
  * 비교 대상 위치(로컬 폴더 / SSH 원격)는 **요청마다** 쿼리로 받는다 —
  * 설정을 브라우저(localStorage)가 들고 있으므로 서버는 상태를 두지 않는다.
  *
- *   GET /api/v1/snapshots[?refresh=1][&소스 파라미터]
+ *   GET /api/v1/snapshots[?refresh=1][&prefix=prod][&소스 파라미터]
  *   GET /api/v1/comparisons?left=&right=[&무시옵션][&소스 파라미터]
  *   GET /api/v1/comparisons/files?left=&right=&path=[&소스 파라미터]
  *
@@ -133,9 +133,10 @@ function createHandler(cfg: RepositoryConfig, projectRoot: string): Connect.Next
             return
           }
 
+          // 폴더 이름 접두사(prod/test/dev …). 없으면 거르지 않는다
           const body: SnapshotListResponse = {
             root: resolved.source.describe(),
-            items: await listSnapshots(resolved.source, cfg, resolved.key),
+            items: await listSnapshots(resolved.source, cfg, resolved.key, query.get('prefix') ?? ''),
           }
           sendJson(res, 200, body)
           return

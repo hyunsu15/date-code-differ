@@ -1,4 +1,4 @@
-import { copyFile, access } from 'node:fs/promises'
+import { copyFile, access, readFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,8 +29,28 @@ const exists = async (file) => {
   }
 }
 
+/**
+ * 나중에 생긴 설정 항목들.
+ * 이미 있는 `config.ts` 는 **고치지 않고**, 빠진 항목만 알려 준다 —
+ * 사용자가 넣은 값을 스크립트가 건드리는 것보다 안내가 낫다.
+ */
+const LATER_ADDITIONS = [
+  {
+    name: 'FOLDER_PREFIXES',
+    hint: '날짜 폴더 이름 접두사(prod/test/dev) 고르기가 화면에 나오지 않습니다.',
+  },
+]
+
 if (await exists(target)) {
   // 이미 있으면 손대지 않는다 (조용히 끝낸다 — 매번 로그를 남길 이유가 없다)
+  const current = await readFile(target, 'utf8')
+  for (const { name, hint } of LATER_ADDITIONS) {
+    if (current.includes(name)) continue
+    console.log(
+      `[code-diff] change/config.ts 에 ${name} 가 없습니다 — ${hint}\n` +
+        `           change/config.example.ts 의 해당 블록을 복사해 넣으면 켜집니다.`
+    )
+  }
   process.exit(0)
 }
 

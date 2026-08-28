@@ -3,7 +3,14 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DEFAULT_PRESET_ID, SCAN, SOURCE_PRESETS } from '../change/config.example.ts'
+import {
+  DEFAULT_PREFIX_ID,
+  DEFAULT_PRESET_ID,
+  FOLDER_PREFIXES,
+  SCAN,
+  SOURCE_PRESETS,
+} from '../change/config.example.ts'
+import { ALL_PREFIXES_ID } from '../src/types.ts'
 import { missingFields } from '../src/features/settings/sourceSettings.ts'
 import { readRepositoryConfig } from '../server/snapshotRepository.ts'
 
@@ -48,6 +55,27 @@ test('템플릿의 폴더 프리셋은 함께 들어있는 예시 폴더를 가�
   const resolved = path.resolve(projectRoot, local.source.root)
   const stat = await fs.stat(resolved)
   assert.ok(stat.isDirectory(), `${resolved} 가 실제로 있어야 한다`)
+})
+
+test('템플릿에는 운영·테스트·개발 접두사가 들어 있다', () => {
+  assert.deepEqual(
+    FOLDER_PREFIXES.map((p) => p.id),
+    ['prod', 'test', 'dev']
+  )
+  for (const item of FOLDER_PREFIXES) {
+    assert.ok(item.label, `${item.id}: label`)
+    assert.ok(item.prefix.trim(), `${item.id}: prefix`)
+    assert.notEqual(item.id, ALL_PREFIXES_ID, "'all' 은 전체 보기 예약 id")
+  }
+})
+
+test('템플릿 접두사 id 는 겹치지 않는다', () => {
+  const ids = FOLDER_PREFIXES.map((p) => p.id)
+  assert.equal(new Set(ids).size, ids.length)
+})
+
+test('템플릿의 기본 접두사는 전체 보기 — 복사하자마자 폴더가 숨지 않는다', () => {
+  assert.equal(DEFAULT_PREFIX_ID, ALL_PREFIXES_ID)
 })
 
 test('템플릿의 훑기 설정은 Pro*C 를 포함한다', () => {

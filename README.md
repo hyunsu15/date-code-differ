@@ -45,6 +45,12 @@ export const SOURCE_PRESETS: SourcePreset[] = [
 /** 처음 열었을 때 고를 프리셋 */
 export const DEFAULT_PRESET_ID = 'ssh'
 
+/** 날짜 폴더 이름 접두사 — 한 폴더에 prod_/test_/dev_ 가 섞여 있을 때 */
+export const FOLDER_PREFIXES: FolderPrefix[] = [
+  { id: 'prod', label: '운영', prefix: 'prod' }, ...
+]
+export const DEFAULT_PREFIX_ID = 'all'
+
 export const SCAN: ScanConfig = {
   extensions: ['pc', 'pch', 'h', 'sql', 'pks', 'pkb'],
   maxFileBytes: 2_000_000,
@@ -58,6 +64,7 @@ export const SCAN: ScanConfig = {
 | 고치면 | 반영 시점 |
 | ------ | --------- |
 | `SOURCE_PRESETS` | **바로** (화면이 다시 읽는다) |
+| `FOLDER_PREFIXES` | **바로** (화면이 다시 읽는다) |
 | `SCAN` | 개발 서버 재시작 후 |
 
 ---
@@ -146,6 +153,43 @@ UTF-8 BOM 은 떼어내 소스 첫 줄에 보이지 않는 글자가 남지 않�
 
 ---
 
+## 폴더 접두사 — 운영 / 테스트 / 개발
+
+한 폴더에 환경별 스냅샷이 **이름으로 섞여** 쌓일 때 쓴다.
+
+```
+/home/deploy/release/
+├─ prod_20260801/   prod_20260901/     ← 운영
+├─ test_20260801/                      ← 테스트
+└─ dev_20260901/                       ← 개발
+```
+
+화면 위 날짜 칸 왼쪽에서 **전체 · 운영 · 테스트 · 개발** 중 하나를 고르면
+그 접두사로 **시작하는** 폴더만 날짜 목록에 남는다. 대소문자는 구분하지 않는다.
+
+```ts
+export const FOLDER_PREFIXES: FolderPrefix[] = [
+  { id: 'prod', label: '운영',   prefix: 'prod' },
+  { id: 'test', label: '테스트', prefix: 'test' },
+  { id: 'dev',  label: '개발',   prefix: 'dev'  },
+]
+
+/** 처음 열었을 때 고를 값. 'all' 이면 거르지 않고 전부 */
+export const DEFAULT_PREFIX_ID = 'all'
+```
+
+- 고른 값은 이 브라우저의 localStorage 에 남는다. 없는 id 는 **전체**로 떨어진다.
+- 배열을 비우면 고르는 자리 자체가 화면에서 사라진다.
+- 거르는 일은 **서버**가 한다 — 스냅샷마다 파일을 훑는 게 비싼 쪽이라 훑기 전에 거른다
+  (SSH 면 폴더당 `find` 한 번). 비교 API 에는 이 값이 필요 없다.
+- 환경이 **폴더로 나뉘어 있으면**(`release/prod/20260801`) 이게 아니라
+  환경별 `SOURCE_PRESETS` 항목을 하나씩 두는 편이 낫다.
+
+> 예전에 만들어 둔 `change/config.ts` 에 이 항목이 없으면 접두사 고르기는 그냥 숨는다
+> (화면은 정상 동작한다). `npm run dev` 가 시작할 때 안내를 한 줄 남긴다.
+
+---
+
 ## 좌우 선택 규칙
 
 날짜 칸은 **직접 타이핑**할 수도 있고 목록(↓)에서 고를 수도 있다.
@@ -191,7 +235,7 @@ UTF-8 BOM 은 떼어내 소스 첫 줄에 보이지 않는 글자가 남지 않�
 
 | 영역 | 하는 일 |
 | ---- | ------- |
-| 상단 헤더 | 비교할 **이전 → 이후** 날짜 폴더 선택, 외부 폴더 다시 읽기(⟳) |
+| 상단 헤더 | 폴더 접두사(운영/테스트/개발) 선택, 비교할 **이전 → 이후** 날짜 폴더 선택, 외부 폴더 다시 읽기(⟳) |
 | 패키지 변경 밴드 | 어느 패키지가 신규·삭제·변경됐는지 한 줄 요약. 칩을 누르면 그 패키지로 파일 목록이 좁혀진다 |
 | 옵션 바 | 코드 표시 범위(변경만/전체), 문맥 줄 수, 나란히/통합, 무시 옵션, **코드 글자 크기** |
 | 왼쪽 목록 | 전체 유사도 요약 + 파일 목록. 기본은 **변경된 파일만** |

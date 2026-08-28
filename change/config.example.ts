@@ -18,7 +18,7 @@
    (npm install · dev · build · test 앞에서). 이미 있으면 덮어쓰지 않습니다.
    ================================================================== */
 
-import type { ScanConfig, SourcePreset } from '../src/types.ts'
+import type { FolderPrefix, ScanConfig, SourcePreset } from '../src/types.ts'
 
 /* ------------------------------------------------------------------
    비교 대상 위치 프리셋
@@ -85,6 +85,38 @@ export const SOURCE_PRESETS: SourcePreset[] = [
  * 예시 폴더로 먼저 둘러보고 싶으면 `'local'` 로 바꾸세요.
  */
 export const DEFAULT_PRESET_ID = 'ssh'
+
+/* ------------------------------------------------------------------
+   날짜 폴더 이름 접두사 — 운영 / 테스트 / 개발
+
+   한 폴더에 환경별 스냅샷이 **섞여 있을 때** 씁니다.
+
+     /home/deploy/release/
+       prod_20260801/   test_20260801/   dev_20260901/   ...
+
+   화면 위쪽에서 고르면 그 접두사로 시작하는 폴더만 목록에 남습니다.
+   대소문자는 구분하지 않고, 뒤에 붙는 `_` `-` 는 적어도 되고 안 적어도 됩니다.
+
+   환경이 **폴더로 나뉘어 있으면**(`release/prod/20260801`) 이걸 쓰지 말고
+   위 SOURCE_PRESETS 에 환경별 프리셋(root: '…/release/prod')을 하나씩 두세요.
+
+   접두사를 쓰지 않으면 아래 배열을 비우면 됩니다 — 화면에서 고르는 자리도 사라집니다.
+   고치면 화면에 바로 반영됩니다.
+   ------------------------------------------------------------------ */
+
+export const FOLDER_PREFIXES: FolderPrefix[] = [
+  { id: 'prod', label: '운영', prefix: 'prod', description: '운영 반영본' },
+  { id: 'test', label: '테스트', prefix: 'test', description: '테스트 서버 반영본' },
+  { id: 'dev', label: '개발', prefix: 'dev', description: '개발 서버 반영본' },
+]
+
+/**
+ * 처음 열었을 때(저장된 선택이 없을 때) 고를 접두사.
+ *
+ * 위 `FOLDER_PREFIXES` 의 `id` 중 하나를 적습니다.
+ * `'all'` 이면 거르지 않고 전부 봅니다. 없는 id 를 적어도 전부 보기로 떨어집니다.
+ */
+export const DEFAULT_PREFIX_ID = 'all'
 
 /* ------------------------------------------------------------------
    훑기 설정 — 어떤 파일을 비교 대상으로 볼지

@@ -50,13 +50,19 @@ function optionParams(options: DiffOptions): Record<string, string> {
   return out
 }
 
-/** 대상 폴더의 날짜 스냅샷 목록 */
+/**
+ * 대상 폴더의 날짜 스냅샷 목록.
+ *
+ * @param prefix 폴더 이름 접두사(`prod` 등). 비우면 거르지 않는다 — 거르는 일은 서버가 한다
+ */
 export function fetchSnapshots(
   source: SourceConfig,
+  prefix = '',
   refresh = false
 ): Promise<SnapshotListResponse> {
   return getJson<SnapshotListResponse>('/snapshots', {
     ...sourceParams(source),
+    ...(prefix ? { prefix } : {}),
     ...(refresh ? { refresh: '1' } : {}),
   })
 }

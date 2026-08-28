@@ -89,6 +89,27 @@ export interface SourcePreset {
   source: SourceConfig
 }
 
+/**
+ * `change/config.ts` 에 두는 **날짜 폴더 이름 접두사** 프리셋.
+ *
+ * 한 폴더에 환경별 스냅샷이 섞여 있을 때 (`prod_20260801` · `test_20260801` · `dev_20260801`)
+ * 어느 쪽을 볼지 화면에서 고른다. 고르면 그 접두사로 시작하는 폴더만 목록에 남는다.
+ *
+ * 환경이 폴더로 나뉘어 있으면(`release/prod/20260801`) 이게 아니라
+ * 환경별 `SourcePreset` 을 하나씩 두면 된다.
+ */
+export interface FolderPrefix {
+  /** 저장·쿼리에 쓰는 식별자. 바꾸면 저장된 선택이 풀린다 */
+  id: string
+  label: string
+  /** 폴더명이 이 문자열로 시작하면 목록에 남긴다 (대소문자 무시) */
+  prefix: string
+  description?: string
+}
+
+/** 접두사를 고르지 않은 상태 — 폴더를 전부 본다. 프리셋 id 로는 쓸 수 없다 */
+export const ALL_PREFIXES_ID = 'all'
+
 /** `change/config.ts` 의 훑기 설정 — 어떤 파일을 비교 대상으로 볼지 */
 export interface ScanConfig {
   /** 비교 대상 확장자 (점 없이) */

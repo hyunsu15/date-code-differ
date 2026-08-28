@@ -9,6 +9,13 @@ import SnapshotPicker from './features/snapshots/SnapshotPicker.tsx'
 import { EMPTY_SELECTION, normalizeSelection } from './features/snapshots/selection.ts'
 import SettingsPanel from './features/settings/SettingsPanel.tsx'
 import {
+  loadPrefixId,
+  PREFIX_CHOICES,
+  prefixById,
+  prefixValue,
+  savePrefixId,
+} from './features/settings/folderPrefix.ts'
+import {
   describeSource,
   loadSourceSelection,
   presetById,
@@ -75,6 +82,9 @@ export default function App() {
   const [sourceSelection, setSourceSelection] = useState<SourceSelection>(loadSourceSelection)
   const source = sourceSelection.source
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // 날짜 폴더 이름 접두사(prod/test/dev …). 목록은 change/config.ts 에서 온다
+  const [prefixId, setPrefixId] = useState(loadPrefixId)
+  const prefix = prefixValue(prefixId)
   // 목록이 어느 위치에서 온 것인지 함께 들고 있어야, 위치를 바꾼 직후
   // 옛 목록으로 비교 요청이 나가는 것을 막을 수 있다.
   const [loaded, setLoaded] = useState<LoadedSnapshots>(EMPTY_LOADED)
@@ -157,12 +167,12 @@ export default function App() {
      ================================================================ */
 
   const loadSnapshots = useCallback(
-    async (config: SourceConfig, refresh: boolean): Promise<void> => {
+    async (config: SourceConfig, folderPrefix: string, refresh: boolean): Promise<void> => {
       setLoadingSnapshots(true)
       setLoadError(null)
       setNeedsPassword(false)
       try {
-        const res = await fetchSnapshots(config, refresh)
+        const res = await fetchSnapshots(config, folderPrefix, refresh)
         setLoaded({ source: config, root: res.root, items: res.items })
         // 고르고 있던 스냅샷이 남아 있으면 유지하고, 아니면 최근 두 개로 맞춘다
         setSelection((prev) => normalizeSelection(res.items, prev))
@@ -184,10 +194,10 @@ export default function App() {
     []
   )
 
-  // 위치 설정이 바뀌면 목록을 통째로 다시 읽는다
+  // 위치 설정이나 접두사가 바뀌면 목록을 통째로 다시 읽는다
   useEffect(() => {
-    void loadSnapshots(source, false)
-  }, [loadSnapshots, source])
+    void loadSnapshots(source, prefix, false)
+  }, [loadSnapshots, source, prefix])
 
   /* ================================================================
      좌우 비교 — 목록/통계는 서버가 만들어 준다 (본문은 안 받는다)
@@ -357,6 +367,12 @@ export default function App() {
     setSettingsOpen(false)
   }, [])
 
+  /** 접두사를 바꾸면 목록을 다시 읽는다 (위 useEffect 가 접두사를 보고 있다) */
+  const changePrefix = useCallback((id: string): void => {
+    setPrefixId(id)
+    savePrefixId(id)
+  }, [])
+
   const toggleSync = useCallback(() => setSyncScroll((v) => !v), [])
   const toggleScope = useCallback(
     () => setCodeScope((v) => (v === 'changed' ? 'full' : 'changed')),
@@ -479,12 +495,39 @@ export default function App() {
 
         <div className="header-spacer" />
 
+        {/* 폴더 이름 접두사 — change/config.ts 에 없으면 이 자리가 아예 없다 */}
+        {PREFIX_CHOICES.length > 0 && (
+          <div
+            className="btn-group prefix-pick"
+            role="radiogroup"
+            aria-label="폴더 접두사"
+            title="날짜 폴더 이름 앞에 붙는 접두사로 거릅니다 (change/config.ts 의 FOLDER_PREFIXES)"
+          >
+            {PREFIX_CHOICES.map((choice) => (
+              <button
+                key={choice.id}
+                type="button"
+                role="radio"
+                aria-checked={prefixId === choice.id}
+                className={`btn sm ${prefixId === choice.id ? 'active' : ''}`}
+                onClick={() => changePrefix(choice.id)}
+                title={
+                  choice.description ??
+                  (choice.prefix ? `${choice.prefix}… 로 시작하는 폴더만` : '전부 보기')
+                }
+              >
+                {choice.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         <SnapshotPicker
           snapshots={snapshots}
           left={left}
           right={right}
           onChange={changeSide}
-          onRefresh={() => void loadSnapshots(source, true)}
+          onRefresh={() => void loadSnapshots(source, prefix, true)}
           loading={loadingSnapshots}
         />
 
@@ -516,7 +559,7 @@ export default function App() {
               <button
                 type="button"
                 className="btn sm"
-                onClick={() => void loadSnapshots(source, false)}
+                onClick={() => void loadSnapshots(source, prefix, false)}
               >
                 비밀번호를 넣었습니다 · 다시 시도
               </button>
@@ -529,6 +572,10 @@ export default function App() {
           {snapshots.length === 0
             ? `${root} 안에 날짜 폴더가 없습니다.`
             : `날짜 폴더가 1개(${snapshots[0]?.id})뿐입니다. 비교하려면 2개 이상 필요합니다.`}
+          {/* 접두사로 걸러 놓고 "폴더가 없다" 만 보면 원인을 찾기 어렵다 */}
+          {prefix && ` 지금은 '${prefix}' 로 시작하는 폴더만 보고 있습니다 — ${
+            prefixById(prefixId).label
+          } 대신 전체를 골라 보세요.`}
         </div>
       )}
 
