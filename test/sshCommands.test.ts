@@ -108,10 +108,15 @@ test('argv 는 [옵션..., user@host, 원격명령] 순서다', () => {
   assert.equal(args[args.length - 1], 'ls -1F')
 })
 
-test('호스트 키를 자동 수락하지 않는다', () => {
-  // 자동 수락은 중간자 공격을 막지 못하므로 켜지 않는다
-  const joined = sshOptions(CONN).join(' ')
-  assert.ok(!/StrictHostKeyChecking/.test(joined))
+test('호스트 키를 자동 수락하지도, 물어보지도 않는다', () => {
+  // 자동 수락은 중간자 공격을 막지 못한다.
+  // 묻지 않는 것도 중요하다 — 비밀번호 인증에서는 그 질문이 askpass 로 가고,
+  // askpass 는 문구를 보지 않고 비밀번호를 답한다 (askpass.test.ts 참고).
+  for (const auth of ['key', 'password'] as const) {
+    const joined = sshOptions({ ...CONN, auth }).join(' ')
+    assert.ok(joined.includes('StrictHostKeyChecking=yes'), auth)
+    assert.equal(/StrictHostKeyChecking=(no|accept-new)/.test(joined), false, auth)
+  }
 })
 
 /* ---------------- 원격 명령 ---------------- */

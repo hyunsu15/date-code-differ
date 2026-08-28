@@ -46,8 +46,12 @@ export function joinRemote(base: string, ...parts: string[]): string {
  * ssh 공통 옵션.
  *
  * - `ConnectTimeout` — 접속 불가일 때 오래 매달리지 않게 한다.
- * - 호스트 키는 자동 수락하지 않는다. 처음 접속하는 서버는 터미널에서 한 번 `ssh` 로 접속해
- *   known_hosts 에 등록해야 한다 (자동 수락은 중간자 공격을 못 막는다).
+ * - `StrictHostKeyChecking=yes` — 호스트 키를 자동 수락하지 않고, 묻지도 않는다.
+ *   처음 접속하는 서버는 터미널에서 한 번 `ssh` 로 접속해 known_hosts 에 등록해야 한다
+ *   (자동 수락은 중간자 공격을 못 막는다).
+ *   **묻지 않는 것까지 중요하다** — 비밀번호 인증에서는 ssh 의 모든 질문이 askpass 로 가는데,
+ *   askpass 는 문구를 보지 않고 비밀번호를 답한다. 호스트 키 확인이 뜨면 그 질문에
+ *   비밀번호가 답으로 들어가고, 접속은 원인 모를 실패로 끝난다.
  *
  * 인증 방식에 따라 갈린다.
  *
@@ -61,7 +65,15 @@ export function joinRemote(base: string, ...parts: string[]): string {
  *   실제 비밀번호는 `SSH_ASKPASS` 로 전달한다 (sshSource.ts 참고).
  */
 export function sshOptions(conn: SshSourceConfig, connectTimeoutSec = 10): string[] {
-  const options: string[] = ['-o', `ConnectTimeout=${connectTimeoutSec}`]
+  const options: string[] = [
+    '-o',
+    `ConnectTimeout=${connectTimeoutSec}`,
+    // 호스트 키를 자동 수락하지도, **물어보지도** 않는다.
+    // 물어보게 두면 비밀번호 인증에서 그 질문이 askpass 로 가고,
+    // askpass 는 비밀번호를 답으로 내놓는다 (yes/no 질문에 비밀번호가 들어간다).
+    '-o',
+    'StrictHostKeyChecking=yes',
+  ]
 
   if (conn.auth === 'password') {
     options.push(
