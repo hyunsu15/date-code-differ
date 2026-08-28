@@ -1,0 +1,193 @@
+import { buildFileDiff } from '../src/lib/diffEngine.ts'
+import { DEFAULT_OPTIONS } from '../src/lib/normalize.ts'
+import {
+  readFileText,
+  scanSnapshot,
+  type RepositoryConfig,
+  type SnapshotFile,
+} from './snapshotRepository.ts'
+import type { SnapshotSource } from './source/types.ts'
+import type {
+  ComparedFile,
+  ComparisonResponse,
+  DiffOptions,
+  FileContentResponse,
+  FileStatus,
+  PackageChange,
+  PackageStatus,
+} from '../src/types.ts'
+
+/**
+ * 두 스냅샷을 비교해 "무엇이 바뀌었는지"만 만들어낸다.
+ * 파일 본문은 응답에 넣지 않는다 — 선택한 파일만 별도로 읽어간다.
+ */
+
+/** 비교 결과 캐시 — (소스, 좌, 우, 무시옵션) 이 같으면 다시 계산하지 않는다 */
+const comparisonCache = new Map<string, ComparisonResponse>()
+
+export function clearComparisonCache(): void {
+  comparisonCache.clear()
+}
+
+function cacheKey(sourceKey: string, left: string, right: string, opts: DiffOptions): string {
+  const flags = [
+    opts.ignoreWhitespace,
+    opts.ignoreCase,
+    opts.ignoreBlankLines,
+    opts.ignoreComments,
+  ]
+    .map((b) => (b ? '1' : '0'))
+    .join('')
+  return `${sourceKey} ${left} ${right} ${flags}`
+}
+
+export async function compareSnapshots(
+  source: SnapshotSource,
+  cfg: RepositoryConfig,
+  sourceKey: string,
+  leftId: string,
+  rightId: string,
+  options: DiffOptions = DEFAULT_OPTIONS
+): Promise<ComparisonResponse> {
+  const key = cacheKey(sourceKey, leftId, rightId, options)
+  const cached = comparisonCache.get(key)
+  if (cached) return cached
+
+  const [leftScan, rightScan] = await Promise.all([
+    scanSnapshot(source, cfg, sourceKey, leftId),
+    scanSnapshot(source, cfg, sourceKey, rightId),
+  ])
+
+  const leftByPath = new Map(leftScan.files.map((f) => [f.path, f]))
+  const rightByPath = new Map(rightScan.files.map((f) => [f.path, f]))
+  const allPaths = [...new Set([...leftByPath.keys(), ...rightByPath.keys()])].sort((a, b) =>
+    a.localeCompare(b)
+  )
+
+  const files: ComparedFile[] = []
+  for (const relPath of allPaths) {
+    files.push(
+      await compareOne(
+        source,
+        leftId,
+        rightId,
+        relPath,
+        leftByPath.get(relPath),
+        rightByPath.get(relPath),
+        options
+      )
+    )
+  }
+
+  const response: ComparisonResponse = {
+    left: leftId,
+    right: rightId,
+    packages: buildPackageChanges(files, leftScan.files, rightScan.files),
+    files,
+    skipped: leftScan.skipped + rightScan.skipped,
+  }
+  comparisonCache.set(key, response)
+  return response
+}
+
+async function compareOne(
+  source: SnapshotSource,
+  leftId: string,
+  rightId: string,
+  relPath: string,
+  left: SnapshotFile | undefined,
+  right: SnapshotFile | undefined,
+  options: DiffOptions
+): Promise<ComparedFile> {
+  const meta = (right ?? left) as SnapshotFile
+  const base = {
+    path: relPath,
+    name: meta.name,
+    packageName: meta.packageName,
+    leftSize: left?.size ?? null,
+    rightSize: right?.size ?? null,
+  }
+
+  // 한쪽에만 있는 파일도 빈 파일과 비교해 통계를 채운다.
+  // 그래야 전체 합계와 패키지 요약이 실제 변경 줄 수를 반영한다.
+  const [leftText, rightText] = await Promise.all([
+    left ? readFileText(source, leftId, relPath) : Promise.resolve(null),
+    right ? readFileText(source, rightId, relPath) : Promise.resolve(null),
+  ])
+
+  // 읽기 실패는 "내용 없음"으로 취급해 목록에서 사라지지 않게 한다
+  const { stats } = buildFileDiff(leftText ?? '', rightText ?? '', options)
+
+  const status: FileStatus = !left
+    ? 'added'
+    : !right
+      ? 'removed'
+      : stats.changedLines === 0
+        ? 'same'
+        : 'modified'
+
+  return { ...base, status, stats }
+}
+
+/**
+ * 패키지(= 날짜 폴더 바로 아래 디렉터리) 단위 요약.
+ * 한쪽에만 존재하는 패키지는 파일 상태와 무관하게 신규/삭제로 본다.
+ */
+function buildPackageChanges(
+  files: readonly ComparedFile[],
+  leftFiles: readonly SnapshotFile[],
+  rightFiles: readonly SnapshotFile[]
+): PackageChange[] {
+  const leftPackages = new Set(leftFiles.map((f) => f.packageName))
+  const rightPackages = new Set(rightFiles.map((f) => f.packageName))
+
+  const byName = new Map<string, PackageChange>()
+  const ensure = (name: string): PackageChange => {
+    const found = byName.get(name)
+    if (found) return found
+    const created: PackageChange = {
+      name,
+      status: 'same',
+      added: 0,
+      removed: 0,
+      modified: 0,
+      same: 0,
+      changedLines: 0,
+    }
+    byName.set(name, created)
+    return created
+  }
+
+  for (const file of files) {
+    const pkg = ensure(file.packageName)
+    pkg[file.status]++
+    pkg.changedLines += file.stats.changedLines
+  }
+
+  for (const pkg of byName.values()) {
+    pkg.status = packageStatus(pkg, leftPackages.has(pkg.name), rightPackages.has(pkg.name))
+  }
+
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function packageStatus(pkg: PackageChange, inLeft: boolean, inRight: boolean): PackageStatus {
+  if (!inLeft) return 'added'
+  if (!inRight) return 'removed'
+  if (pkg.added + pkg.removed + pkg.modified > 0) return 'modified'
+  return 'same'
+}
+
+/** 선택한 파일 한 건의 좌우 본문 */
+export async function readFilePair(
+  source: SnapshotSource,
+  leftId: string,
+  rightId: string,
+  relPath: string
+): Promise<FileContentResponse> {
+  const [leftText, rightText] = await Promise.all([
+    readFileText(source, leftId, relPath),
+    readFileText(source, rightId, relPath),
+  ])
+  return { path: relPath, leftText, rightText }
+}
