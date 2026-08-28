@@ -1,0 +1,73 @@
+/******************************************************************
+ * 프로그램명 : ord_amend.pc
+ * 기      능 : 접수된 주문 정정 (수량/가격)
+ * 작   성   일: 2026-06-24
+ * 변   경   일: 2026-07-22  수량 단위 검증 추가
+ ******************************************************************/
+#include <stdio.h>
+#include <string.h>
+#include "ord_common.h"
+
+EXEC SQL INCLUDE SQLCA;
+
+EXEC SQL BEGIN DECLARE SECTION;
+    char    h_ord_no[11];
+    char    h_acct_no[12];
+    char    h_ord_stat[4];
+    long    h_ord_qty;
+    double  h_ord_prc;
+EXEC SQL END DECLARE SECTION;
+
+/* 정정 가능 상태인지 확인 */
+static int chk_amendable(char *ord_no, char *stat)
+{
+    EXEC SQL
+        SELECT ORD_STAT
+          INTO :stat
+          FROM TB_ORD
+         WHERE ORD_NO = :ord_no;
+
+    if (sqlca.sqlcode == 1403) return ERR_NO_ORD;
+    if (sqlca.sqlcode != 0)    return ERR_DB;
+
+    if (strcmp(stat, "RCV") != 0) return ERR_NOT_CANCELABLE;
+
+    return RC_OK;
+}
+
+/* 주문 정정 메인 */
+int ord_amend(ORD_AMEND_REQ *req, ORD_RES *res)
+{
+    int rc;
+
+    strcpy(h_ord_no,  req->ord_no);
+    strcpy(h_acct_no, req->acct_no);
+    h_ord_qty = req->ord_qty;
+    h_ord_prc = req->ord_prc;
+
+    if (h_ord_qty <= 0 || h_ord_qty > MAX_ORD_QTY) return ERR_QTY_RANGE;
+    if (h_ord_qty % ORD_QTY_UNIT != 0) return ERR_QTY_UNIT;
+    if (h_ord_prc < 0) return ERR_PRC_RANGE;
+
+    rc = chk_amendable(h_ord_no, h_ord_stat);
+    if (rc != RC_OK) return rc;
+
+    EXEC SQL
+        UPDATE TB_ORD
+           SET ORD_QTY = :h_ord_qty,
+               ORD_PRC = :h_ord_prc,
+               AMD_DTM = TO_CHAR(SYSDATE, 'YYYYMMDDHH24MISS')
+         WHERE ORD_NO  = :h_ord_no
+           AND ACCT_NO = :h_acct_no;
+
+    if (sqlca.sqlcode != 0) {
+        EXEC SQL ROLLBACK;
+        return ERR_DB;
+    }
+
+    EXEC SQL COMMIT;
+
+    strcpy(res->ord_no, h_ord_no);
+    res->rc = RC_OK;
+    return RC_OK;
+}

@@ -1,0 +1,44 @@
+/******************************************************************
+ * 프로그램명 : cmm_util.pc
+ * 기      능 : 공통 유틸리티
+ ******************************************************************/
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+/* 문자열 오른쪽 공백 제거 */
+void rtrim(char *s)
+{
+    int i = (int)strlen(s) - 1;
+    while (i >= 0 && isspace((unsigned char)s[i])) {
+        s[i] = '\0';
+        i--;
+    }
+}
+
+/* 문자열 왼쪽 공백 제거 */
+void ltrim(char *s)
+{
+    int i = 0;
+    int n = (int)strlen(s);
+    while (i < n && isspace((unsigned char)s[i])) i++;
+    if (i > 0) memmove(s, s + i, (size_t)(n - i + 1));
+}
+
+/* 양쪽 공백 제거 */
+void trim(char *s)
+{
+    ltrim(s);
+    rtrim(s);
+}
+
+/* 숫자 문자열 여부 */
+int is_digits(const char *s)
+{
+    if (s == NULL || *s == '\0') return 0;
+    while (*s) {
+        if (!isdigit((unsigned char)*s)) return 0;
+        s++;
+    }
+    return 1;
+}

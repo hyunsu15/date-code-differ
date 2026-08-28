@@ -1,0 +1,51 @@
+/******************************************************************
+ * 프로그램명 : pay_cancel.pc
+ * 기      능 : 결제 취소 처리
+ * 작   성   일: 2026-05-20
+ ******************************************************************/
+#include <stdio.h>
+#include <string.h>
+#include "pay_common.h"
+
+EXEC SQL INCLUDE SQLCA;
+
+EXEC SQL BEGIN DECLARE SECTION;
+    char h_pay_no[11];
+    char h_pay_stat[4];
+EXEC SQL END DECLARE SECTION;
+
+/* 결제 취소 */
+int pay_cancel(PAY_CANCEL_REQ *req, PAY_RES *res)
+{
+    strcpy(h_pay_no, req->pay_no);
+
+    EXEC SQL
+        SELECT PAY_STAT
+          INTO :h_pay_stat
+          FROM TB_PAY
+         WHERE PAY_NO = :h_pay_no;
+
+    if (sqlca.sqlcode == 1403) return ERR_NO_PAY;
+    if (sqlca.sqlcode != 0)    return ERR_DB;
+
+    if (strcmp(h_pay_stat, "APR") != 0) {
+        return ERR_NOT_CANCELABLE;
+    }
+
+    EXEC SQL
+        UPDATE TB_PAY
+           SET PAY_STAT = 'CNL',
+               CNL_DTM  = TO_CHAR(SYSDATE, 'YYYYMMDDHH24MISS')
+         WHERE PAY_NO = :h_pay_no;
+
+    if (sqlca.sqlcode != 0) {
+        EXEC SQL ROLLBACK;
+        return ERR_DB;
+    }
+
+    EXEC SQL COMMIT;
+
+    strcpy(res->pay_no, h_pay_no);
+    res->rc = RC_OK;
+    return RC_OK;
+}

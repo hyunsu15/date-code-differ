@@ -1,0 +1,43 @@
+/******************************************************************
+ * 프로그램명 : cmm_log.pc
+ * 기      능 : 공통 로그 기록
+ ******************************************************************/
+#include <stdio.h>
+#include <string.h>
+#include <time.h>
+
+static FILE *g_fp = NULL;
+
+/* 로그 파일 열기 */
+int log_open(const char *path)
+{
+    g_fp = fopen(path, "a");
+    if (g_fp == NULL) return -1;
+    return 0;
+}
+
+/* 로그 기록 */
+void log_write(const char *level, const char *msg)
+{
+    time_t     now;
+    struct tm *tm_now;
+    char       buf[20];
+
+    if (g_fp == NULL) return;
+
+    time(&now);
+    tm_now = localtime(&now);
+    strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", tm_now);
+
+    fprintf(g_fp, "[%s][%s] %s\n", buf, level, msg);
+    fflush(g_fp);
+}
+
+/* 로그 파일 닫기 */
+void log_close(void)
+{
+    if (g_fp != NULL) {
+        fclose(g_fp);
+        g_fp = NULL;
+    }
+}

@@ -1,0 +1,83 @@
+/******************************************************************
+ * 프로그램명 : rpt_daily.pc
+ * 기      능 : 일일 거래 리포트 생성
+ * 작   성   일: 2026-08-19
+ ******************************************************************/
+#include <stdio.h>
+#include <string.h>
+#include <koscom/log.h>
+#include "rpt_common.h"
+
+EXEC SQL INCLUDE SQLCA;
+
+EXEC SQL BEGIN DECLARE SECTION;
+    char   h_base_dt[9];
+    char   h_acct_no[12];
+    char   h_isin_cd[13];
+    long   h_exec_qty;
+    double h_exec_amt;
+    long   h_row_cnt;
+EXEC SQL END DECLARE SECTION;
+
+/* 기준일 형식 검증 */
+static int chk_base_dt(const char *base_dt)
+{
+    int i;
+
+    if (strlen(base_dt) != 8) return ERR_BAD_PERIOD;
+    for (i = 0; i < 8; i++) {
+        if (base_dt[i] < '0' || base_dt[i] > '9') return ERR_BAD_PERIOD;
+    }
+    return RC_OK;
+}
+
+/* 계좌별 일일 체결 내역 출력 */
+int rpt_daily(RPT_REQ *req, RPT_RES *res)
+{
+    int rc;
+
+    strcpy(h_base_dt, req->base_dt);
+    strcpy(h_acct_no, req->acct_no);
+
+    rc = chk_base_dt(h_base_dt);
+    if (rc != RC_OK) {
+        log_write("WARN", "invalid base_dt");
+        return rc;
+    }
+
+    EXEC SQL DECLARE cur_exec CURSOR FOR
+        SELECT ISIN_CD, SUM(EXEC_QTY), SUM(EXEC_AMT)
+          FROM TB_EXEC
+         WHERE ACCT_NO = :h_acct_no
+           AND EXEC_DT = :h_base_dt
+         GROUP BY ISIN_CD
+         ORDER BY ISIN_CD;
+
+    EXEC SQL OPEN cur_exec;
+
+    h_row_cnt = 0;
+    printf("=== %s / %s ===\n", h_base_dt, h_acct_no);
+
+    for (;;) {
+        EXEC SQL FETCH cur_exec INTO :h_isin_cd, :h_exec_qty, :h_exec_amt;
+        if (sqlca.sqlcode == 1403) break;
+        if (sqlca.sqlcode != 0) {
+            EXEC SQL CLOSE cur_exec;
+            log_write("ERROR", "cur_exec fetch failed");
+            return ERR_DB;
+        }
+
+        printf("%-12s %10ld %15.0f\n", h_isin_cd, h_exec_qty, h_exec_amt);
+
+        h_row_cnt++;
+        if (h_row_cnt >= MAX_ROWS) break;
+    }
+
+    EXEC SQL CLOSE cur_exec;
+
+    if (h_row_cnt == 0) return ERR_NO_DATA;
+
+    res->row_count = h_row_cnt;
+    res->rc = RC_OK;
+    return RC_OK;
+}
