@@ -585,7 +585,7 @@ export default function App() {
       <header className="header">
         <div className="brand">
           <span className="dot">◧</span>
-          <span>날짜별 소스 Diff</span>
+          <span>환경 · 날짜별 소스 Diff</span>
           <small
             title={[
               presetLabel,

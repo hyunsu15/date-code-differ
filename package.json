@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "날짜 스냅샷 기준 Pro*C(.pc) 소스 Diff 비교 도구",
+  "description": "환경·날짜 스냅샷 기준 Pro*C(.pc) 소스 Diff 비교 도구",
   "scripts": {
     "postinstall": "node scripts/ensure-config.mjs",
     "predev": "node scripts/ensure-config.mjs",

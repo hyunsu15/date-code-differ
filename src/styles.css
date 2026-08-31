@@ -1,5 +1,5 @@
 /* ================================================================
-   날짜별 소스 Diff — 전역 스타일
+   환경 · 날짜별 소스 Diff — 전역 스타일
    ================================================================ */
 
 :root {
@@ -164,8 +164,6 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .brand small { font-weight: 400; color: var(--muted); font-size: 11.5px; }
 
 .header-spacer { flex: 1; }
-
-/* 폴더 이름 접두사 고르기 (운영/테스트/개발) — 날짜 칸 바로 왼쪽 */
 
 .btn {
   display: inline-flex;
