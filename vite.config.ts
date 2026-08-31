@@ -18,7 +18,9 @@ export default defineConfig({
     cors: false,
   },
   build: {
-    outDir: 'dist',
+    // 배포 스크립트(update.sh)가 dist_next → dist 로 스왑하므로 바로 그 이름으로 낸다.
+    // 운영 중인 dist 를 건드리지 않고 새 빌드를 올려둘 수 있다 (롤백은 rollback.sh).
+    outDir: 'dist_next',
     chunkSizeWarningLimit: 1200,
   },
 })
