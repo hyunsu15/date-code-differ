@@ -67,20 +67,39 @@ export async function compareSnapshots(
 
   const files: ComparedFile[] = []
   for (const batch of chunk(allPaths, COMPARE_BATCH)) {
+    const leftWanted: string[] = []
+    const rightWanted: string[] = []
+    /** 좌측 본문을 우측 본문으로도 그대로 쓰는 파일 (내용이 같다고 판명된 것) */
+    const mirrored = new Set<string>()
+
+    for (const relPath of batch) {
+      const left = leftByPath.get(relPath)
+      const right = rightByPath.get(relPath)
+
+      if (left) leftWanted.push(relPath)
+      if (!right) continue
+      // 내용이 같으면 한쪽만 받아 양쪽에 쓴다 — 전송량이 절반이 된다.
+      // 통계(총 줄 수·문자 수)는 동일한 파일에서도 요약 카드에 들어가므로
+      // 읽기를 아예 건너뛸 수는 없다. 두 번 받지 않는 것까지가 여기서 할 수 있는 일이다.
+      if (left && sameContent(left, right)) mirrored.add(relPath)
+      else rightWanted.push(relPath)
+    }
+
     // 본문을 **한 번에 몰아서** 받는다. 파일마다 따로 물어보면 SSH 왕복이 파일 수에 비례한다.
     const [leftTexts, rightTexts] = await Promise.all([
-      readFileTexts(source, leftId, batch.filter((p) => leftByPath.has(p))),
-      readFileTexts(source, rightId, batch.filter((p) => rightByPath.has(p))),
+      readFileTexts(source, leftId, leftWanted),
+      readFileTexts(source, rightId, rightWanted),
     ])
 
     for (const relPath of batch) {
+      const leftText = leftTexts.get(relPath) ?? null
       files.push(
         compareOne(
           relPath,
           leftByPath.get(relPath),
           rightByPath.get(relPath),
-          leftTexts.get(relPath) ?? null,
-          rightTexts.get(relPath) ?? null,
+          leftText,
+          mirrored.has(relPath) ? leftText : (rightTexts.get(relPath) ?? null),
           options
         )
       )
@@ -98,6 +117,18 @@ export async function compareSnapshots(
   comparisonCache.set(key, response)
   return response
 }
+
+/**
+ * 좌우 파일이 **내용까지 같은지** 를 본문 없이 판정한다.
+ *
+ * `checksum` 은 소스가 목록을 만들면서 덤으로 낼 수 있을 때만 채워진다 (SSH 는 `cksum`,
+ * 로컬은 null). 없으면 판정하지 않는다 — 못 미더워서 건너뛰는 게 아니라, 왕복 비용이
+ * 없는 소스에서는 체크섬을 만드느라 파일을 한 번 더 읽는 것이 순수한 손해라서다.
+ *
+ * 값 자체에 크기가 들어 있어(`<CRC>:<크기>`) 이 비교 하나로 크기까지 함께 본다.
+ */
+const sameContent = (left: SnapshotFile, right: SnapshotFile): boolean =>
+  left.checksum !== null && left.checksum === right.checksum
 
 /**
  * 한 번에 본문을 올려 두는 파일 수.

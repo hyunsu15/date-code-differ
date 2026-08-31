@@ -8,7 +8,7 @@ import {
   listDirsCommand,
   listFilesCommand,
   parseDirListing,
-  parseFileSizes,
+  parseFileEntries,
   parseFileStream,
   readFilesCommand,
 } from './sshCommands.ts'
@@ -67,10 +67,7 @@ export class SshSource implements SnapshotSource {
       // 명령이 빈 폴더에서도 정상 종료하므로(`|| true`), 여기서 실패 = 접속 문제다.
       // 삼키면 접속 끊김이 "빈 폴더"로 보여 비교 결과가 조용히 비어 버린다.
       const listed = await this.run(listFilesCommand(dir))
-      out.set(
-        snapshotId,
-        parseFileSizes(this.decode(listed)).map((f) => ({ ...f, checksum: null }))
-      )
+      out.set(snapshotId, parseFileEntries(this.decode(listed)))
     }
 
     return out

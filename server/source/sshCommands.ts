@@ -122,9 +122,15 @@ export function formatSshCommand(args: string[]): string {
 export const listDirsCommand = (root: string): string => `ls -1F -- ${quoteRemotePath(root)}`
 
 /**
- * 스냅샷 안의 모든 파일을 **크기와 함께** 나열한다.
- * `find -printf` 나 `stat -c` 는 GNU 전용이라, POSIX 조합인 `find ... -exec wc -c {} +` 를 쓴다.
- * 출력은 `<바이트수> ./<상대경로>` 이고 배치마다 `total` 줄이 섞인다 (호출부에서 걸러낸다).
+ * 스냅샷 안의 모든 파일을 **크기·체크섬과 함께** 나열한다.
+ * `find -printf` 나 `stat -c`(GNU 전용)·`md5sum`(GNU)·`sha1sum` 은 쓰지 않는다.
+ * `cksum` 은 POSIX 필수 유틸이라 Solaris·AIX 에도 있고, 출력이
+ * `<CRC> <바이트수> ./<상대경로>` 라 **크기까지 한 줄에** 온다 — 왕복이 늘지 않는다.
+ *
+ * 이 값으로 좌우가 같은 파일을 가려내 본문 전송을 건너뛴다. CRC-32 라 이론상 충돌이
+ * 가능한데, 크기까지 같아야 "같음"으로 보므로(`parseFileEntries` 가 둘을 한 값으로 묶는다)
+ * 실제 오탐 확률은 무시할 수준이다. 더 확실하게 하려면 접속마다 한 번 `command -v
+ * sha1sum` 으로 탐지해 있을 때만 그걸 쓰는 길이 있다 — 왕복이 하나 늘어 지금은 안 한다.
  *
  * **먼저 폴더로 들어가 `find .` 을 돌린다.** 절대 경로를 넘기면 find 가 그 경로를 그대로 앞에
  * 붙여 내보내는데, `~/rel` 처럼 원격이 확장하는 루트에서는 돌아온 경로(`/home/deploy/rel/…`)와
@@ -135,7 +141,7 @@ export const listDirsCommand = (root: string): string => `ls -1F -- ${quoteRemot
  * 접속 실패를 종료 코드로 구분해야 하기 때문. 이게 없으면 접속이 끊겨도 "빈 폴더"로 보인다.
  */
 export const listFilesCommand = (snapshotDir: string): string =>
-  `cd ${quoteRemotePath(snapshotDir)} 2>/dev/null && find . -type f -exec wc -c {} + 2>/dev/null || true`
+  `cd ${quoteRemotePath(snapshotDir)} 2>/dev/null && find . -type f -exec cksum {} + 2>/dev/null || true`
 
 /**
  * 여러 파일의 본문을 **한 번의 접속으로** 읽는다.
@@ -212,47 +218,43 @@ export function parseDirListing(stdout: string): string[] {
 }
 
 /**
- * `wc -c` 출력을 상대 경로 + 크기로 바꾼다.
+ * `cksum` 출력을 상대 경로 + 크기 + 체크섬으로 바꾼다.
  *
- * 각 줄은 `<바이트수> ./<상대경로>` 이고, 파일이 여러 개면 `<합계> total` 줄이 섞인다.
- * `./` 로 시작하는 줄만 인정해 `total` 줄과 잡음을 함께 걸러낸다
+ * 각 줄은 `<CRC> <바이트수> ./<상대경로>` 다.
+ * `./` 로 시작하는 줄만 인정해 잡음(`find: cannot read directory` 등)을 걸러낸다
  * (`listFilesCommand` 가 폴더 안으로 들어가 `find .` 을 돌리므로 항상 `./` 로 온다).
- * 경로에 공백이 있어도 첫 공백 뒤 전부를 경로로 보므로 안전하다.
+ * 경로에 공백이 있어도 두 번째 공백 뒤 전부를 경로로 보므로 안전하다.
+ *
+ * `checksum` 은 **CRC 와 크기를 함께 묶은** 값이다. 호출부가 크기 비교를 빠뜨려도
+ * CRC 충돌만으로 "같은 파일" 이 되지 않게, 견줄 것을 한 값 안에 넣어 둔다.
  */
-export function parseFileSizes(stdout: string): { path: string; size: number }[] {
-  const out: { path: string; size: number }[] = []
+export function parseFileEntries(
+  stdout: string
+): { path: string; size: number; checksum: string }[] {
+  const out: { path: string; size: number; checksum: string }[] = []
 
   for (const raw of stdout.split('\n')) {
     const line = raw.replace(/\r$/, '').trim()
     if (!line) continue
 
-    const gap = line.indexOf(' ')
-    if (gap <= 0) continue
+    const crcGap = line.indexOf(' ')
+    if (crcGap <= 0) continue
+    const sizeGap = line.indexOf(' ', crcGap + 1)
+    if (sizeGap <= crcGap) continue
 
-    const size = Number(line.slice(0, gap))
-    if (!Number.isFinite(size)) continue
+    const crc = line.slice(0, crcGap)
+    const size = Number(line.slice(crcGap + 1, sizeGap))
+    if (!/^\d+$/.test(crc) || !Number.isFinite(size)) continue
 
-    const found = line.slice(gap + 1).trimStart()
-    if (!found.startsWith('./')) continue // `total` 줄과 잡음을 걸러낸다
+    const found = line.slice(sizeGap + 1).trimStart()
+    if (!found.startsWith('./')) continue
 
     const relative = found.slice(2)
-    if (relative) out.push({ path: relative, size })
+    if (relative) out.push({ path: relative, size, checksum: `${crc}:${size}` })
   }
   return out
 }
 
-/**
- * `readFilesCommand` 의 출력을 요청한 순서대로 파일 본문(바이트)으로 자른다.
- *
- * **바이트로 다룬다.** 헤더의 숫자는 바이트 수라, 문자열로 옮긴 뒤에는 (EUC-KR·UTF-8)
- * 그 길이만큼 자를 수가 없다. 디코딩은 잘라낸 다음에 한다.
- *
- * 어긋나면 **그 자리에서 멈춘다.** 헤더가 `@@` 로 시작하지 않거나 남은 바이트가
- * 모자라면 나머지는 전부 "없음"으로 둔다 — 어긋난 바이트를 본문으로 넘기면
- * 엉뚱한 파일 내용이 diff 에 올라가 조용히 틀린 결과가 된다.
- *
- * @param count 요청한 파일 수. 반환 배열의 길이는 항상 이 값이다 (없는 파일은 null)
- */
 export function parseFileStream(bytes: Uint8Array, count: number): (Uint8Array | null)[] {
   const AT = 0x40 // '@'
   const LF = 0x0a

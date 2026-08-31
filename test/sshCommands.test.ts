@@ -8,7 +8,7 @@ import {
   listDirsCommand,
   listFilesCommand,
   parseDirListing,
-  parseFileSizes,
+  parseFileEntries,
   quoteRemotePath,
   readFilesCommand,
   chunkPaths,
@@ -154,7 +154,8 @@ test('파일 목록은 GNU 전용 옵션을 쓰지 않는다', () => {
   const cmd = listFilesCommand('/x')
   assert.ok(!cmd.includes('-printf'))
   assert.ok(!cmd.includes('-maxdepth'))
-  assert.ok(cmd.includes('-exec wc -c {} +'))
+  assert.ok(cmd.includes('-exec cksum {} +'))
+  assert.ok(!/md5sum|sha1sum|sha256sum/.test(cmd), 'GNU 전용 해시는 Solaris·AIX 에 없다')
 })
 
 /* ---------------- 여러 파일 한 번에 읽기 ---------------- */
@@ -250,31 +251,38 @@ test('CRLF 로 와도 디렉터리를 알아본다', () => {
   assert.deepEqual(parseDirListing('a/\r\nb/\r\nc.txt\r\n'), ['a', 'b'])
 })
 
-test('wc -c 출력을 상대 경로와 크기로 바꾼다', () => {
-  const stdout = [
-    '     120 ./ord/ord_create.pc',
-    '      45 ./pay/pay_approve.pc',
-    '     165 total',
-  ].join('\n')
+test('cksum 출력을 상대 경로·크기·체크섬으로 바꾼다', () => {
+  const stdout = ['3821 120 ./ord/ord_create.pc', '77 45 ./pay/pay_approve.pc'].join('\n')
 
-  assert.deepEqual(parseFileSizes(stdout), [
-    { path: 'ord/ord_create.pc', size: 120 },
-    { path: 'pay/pay_approve.pc', size: 45 },
+  assert.deepEqual(parseFileEntries(stdout), [
+    { path: 'ord/ord_create.pc', size: 120, checksum: '3821:120' },
+    { path: 'pay/pay_approve.pc', size: 45, checksum: '77:45' },
   ])
 })
 
-test('total 줄과 ./ 로 시작하지 않는 줄은 걸러낸다', () => {
+test('체크섬에 크기가 함께 들어간다 — CRC 만 같은 파일을 같다고 보면 변경이 사라진다', () => {
+  const [a] = parseFileEntries('12345 100 ./a.pc')
+  const [b] = parseFileEntries('12345 101 ./b.pc')
+  assert.notEqual(a.checksum, b.checksum, 'CRC 가 같아도 크기가 다르면 달라야 한다')
+})
+
+test('./ 로 시작하지 않는 줄과 잡음은 걸러낸다', () => {
   const stdout = [
-    '  10 ./a.pc',
-    '  99 total',
-    '  20 /other/b.pc', // 폴더 밖 경로 — 섞여 들어오면 안 된다
+    '10 20 ./a.pc',
+    'find: cannot read directory',
+    '30 40 /other/b.pc', // 폴더 밖 경로 — 섞여 들어오면 안 된다
+    '165 total',
     '',
   ].join('\n')
-  assert.deepEqual(parseFileSizes(stdout), [{ path: 'a.pc', size: 10 }])
+  assert.deepEqual(parseFileEntries(stdout), [
+    { path: 'a.pc', size: 20, checksum: '10:20' },
+  ])
 })
 
 test('경로에 공백이 있어도 끊기지 않는다', () => {
-  assert.deepEqual(parseFileSizes('  7 ./ord/my file.pc'), [{ path: 'ord/my file.pc', size: 7 }])
+  assert.deepEqual(parseFileEntries('9 7 ./ord/my file.pc'), [
+    { path: 'ord/my file.pc', size: 7, checksum: '9:7' },
+  ])
 })
 
 test('~ 루트여도 파일 목록이 비지 않는다', () => {
@@ -284,12 +292,14 @@ test('~ 루트여도 파일 목록이 비지 않는다', () => {
   assert.ok(cmd.startsWith(`cd ~/'rel/2026-08-01' `), cmd)
   assert.ok(cmd.includes('find . -type f'), cmd)
   // 원격이 확장한 실제 경로를 몰라도 파싱된다
-  assert.deepEqual(parseFileSizes('  5 ./ord/a.pc'), [{ path: 'ord/a.pc', size: 5 }])
+  assert.deepEqual(parseFileEntries('1 5 ./ord/a.pc'), [
+    { path: 'ord/a.pc', size: 5, checksum: '1:5' },
+  ])
 })
 
 test('빈 출력·잡음은 빈 목록', () => {
   for (const stdout of ['', '\n\n', 'find: cannot read directory', '  총 0']) {
-    assert.deepEqual(parseFileSizes(stdout), [], JSON.stringify(stdout))
+    assert.deepEqual(parseFileEntries(stdout), [], JSON.stringify(stdout))
   }
 })
 

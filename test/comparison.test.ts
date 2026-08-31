@@ -10,6 +10,8 @@ import {
   scanSnapshot,
 } from '../server/snapshotRepository.ts'
 import { createSource, sourceKey } from '../server/source/resolve.ts'
+import type { RawFile, SnapshotSource } from '../server/source/types.ts'
+import { createHash } from 'node:crypto'
 import { DEFAULT_OPTIONS } from '../src/lib/normalize.ts'
 import type { ComparedFile, PackageChange, SourceConfig } from '../src/types.ts'
 
@@ -216,6 +218,89 @@ test('UTF-8 로 고정하면 EUC-KR 파일이 깨진다 (설정이 실제로 먹
   assert.ok(text)
   assert.ok(text.includes('�'), 'UTF-8 로 읽으면 대체문자가 생겨야 한다')
   assert.ok(!text.includes('고객 공지'), '한글이 제대로 읽히면 안 된다')
+})
+
+/* ---------------- 체크섬으로 같은 파일 건너뛰기 ---------------- */
+
+/**
+ * 체크섬을 낼 수 있는 소스를 흉내 낸다 (SSH 의 `cksum` 자리).
+ *
+ * fs 를 mock 하지 않는다 — 실제 `sample-code` 를 읽는 `LocalSource` 를 그대로 감싸고,
+ * 목록에 체크섬만 얹은 뒤 **본문을 몇 번 읽었는지** 센다. 로컬 소스는 체크섬을 내지
+ * 않으므로(내려면 파일을 한 번 더 읽어야 해서 손해다) 이 경로는 감싸지 않으면 안 밟힌다.
+ */
+class CountingSource implements SnapshotSource {
+  readonly reads: string[] = []
+  private readonly inner: SnapshotSource
+  private readonly withChecksum: boolean
+
+  constructor(inner: SnapshotSource, withChecksum: boolean) {
+    this.inner = inner
+    this.withChecksum = withChecksum
+  }
+
+  describe(): string {
+    return this.inner.describe()
+  }
+
+  listSnapshotDirs(): Promise<string[]> {
+    return this.inner.listSnapshotDirs()
+  }
+
+  async listFilesIn(ids: readonly string[]): Promise<Map<string, RawFile[]>> {
+    const listed = await this.inner.listFilesIn(ids)
+    if (!this.withChecksum) return listed
+
+    const out = new Map<string, RawFile[]>()
+    for (const [id, files] of listed) {
+      const texts = await this.inner.readFiles(
+        id,
+        files.map((f) => f.path)
+      )
+      out.set(
+        id,
+        files.map((f) => ({
+          ...f,
+          checksum: createHash('sha1')
+            .update(texts.get(f.path) ?? '')
+            .digest('hex'),
+        }))
+      )
+    }
+    return out
+  }
+
+  readFiles(id: string, paths: readonly string[]): Promise<Map<string, string>> {
+    for (const p of paths) this.reads.push(`${id}/${p}`)
+    return this.inner.readFiles(id, paths)
+  }
+}
+
+test('내용이 같은 파일은 한쪽만 읽는다 — 결과는 전부 읽었을 때와 같다', async () => {
+  const plain = new CountingSource(createSource(LOCAL, projectRoot), false)
+  const fast = new CountingSource(createSource(LOCAL, projectRoot), true)
+
+  const full = await compareSnapshots(plain, cfg, 'plain', '2026-06-01', '2026-07-01')
+  const skipped = await compareSnapshots(fast, cfg, 'fast', '2026-06-01', '2026-07-01')
+
+  // 성능 개선이 정확성을 바꾸면 그건 버그다. 요약 카드가 쓰는 총 줄 수·문자 수까지 같아야 한다.
+  assert.deepEqual(skipped, full, '체크섬으로 건너뛴 결과가 전부 읽은 결과와 달라지면 안 된다')
+
+  const sameFiles = full.files.filter((f) => f.status === 'same')
+  assert.ok(sameFiles.length > 0, 'fixture 에 동일 파일이 있어야 의미가 있는 검증이다')
+  assert.equal(
+    fast.reads.length,
+    plain.reads.length - sameFiles.length,
+    '동일한 파일 수만큼 읽기가 줄어야 한다'
+  )
+})
+
+test('체크섬이 없는 소스는 예전처럼 양쪽을 다 읽는다', async () => {
+  const plain = new CountingSource(createSource(LOCAL, projectRoot), false)
+  await compareSnapshots(plain, cfg, 'plain-only', '2026-06-01', '2026-07-01')
+
+  const both = plain.reads.filter((r) => r.startsWith('2026-06-01/')).length
+  assert.ok(both > 0)
 })
 
 /* ---------------- 무시 옵션 ---------------- */
