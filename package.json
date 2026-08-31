@@ -16,7 +16,8 @@
     "pretypecheck": "node scripts/ensure-config.mjs",
     "typecheck": "tsc --noEmit",
     "pretest": "node scripts/ensure-config.mjs",
-    "test": "node --test test/*.test.ts"
+    "test": "node --test test/*.test.ts",
+    "shots": "node scripts/shoot.mjs"
   },
   "dependencies": {
     "diff": "^7.0.0",

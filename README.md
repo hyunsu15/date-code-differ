@@ -333,6 +333,13 @@ change/
 
 scripts/
   ensure-config.mjs         config.ts 가 없으면 example 을 복사해 만든다
+  shoot.mjs                 사용설명서 스크린샷을 다시 뽑는다 (npm run shots)
+  shot.html                 그 캡처용 페이지 — 실제 화면 위에 빨간 박스·번호를 얹는다
+
+docs/
+  사용설명서.md              사용자용 안내 (스크린샷 포함)
+  images/                   위 스크린샷. 손으로 찍지 않고 npm run shots 로 만든다
+  API.md                    읽기 전용 API 스펙
 
 server/                     비교 대상을 읽는 개발 서버 API (Vite 플러그인)
   codeRepositoryPlugin.ts   미들웨어 등록 · 라우팅 · 요청에서 위치 읽기
@@ -378,10 +385,16 @@ npm run build      # 타입 검사 + 프로덕션 빌드
 npm run preview    # 빌드 결과 실행 (API 포함)
 npm test           # 테스트
 npm run typecheck  # 타입 검사만
+npm run shots      # 사용설명서 스크린샷 다시 뽑기 (dev 가 떠 있어야 한다)
 ```
 
 dev·build·test·typecheck 는 시작 전에 `change/config.ts` 가 있는지 확인하고,
 없으면 템플릿에서 만들어 준다. 따로 준비할 것이 없다.
+
+`shots` 는 화면을 고친 뒤 설명서 그림이 낡지 않게 하는 용도다. 이미 깔려 있는
+Chrome·Edge 를 헤드리스로 띄워 찍으므로 따로 받을 것이 없다 (없으면 `CHROME_PATH` 로
+경로를 알려주면 된다). 박스와 번호는 [`scripts/shot.html`](scripts/shot.html) 이
+**실제 요소 좌표를 읽어** 그리므로, 화면이 조금 움직여도 엉뚱한 곳을 가리키지 않는다.
 
 ---
 
