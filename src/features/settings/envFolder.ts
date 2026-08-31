@@ -117,6 +117,23 @@ export function saveEnvPair(pair: EnvPair): void {
 /** 루트 뒤에 붙일 하위 경로. 설정에 환경이 없으면 빈 문자열 */
 export const envPath = (id: string): string => envById(id).path.trim()
 
+/** 준비해 둔 환경 색 가짓수 (`styles.css` 의 `.env-c*`). 이보다 많으면 앞에서부터 다시 쓴다 */
+const ENV_COLORS = 4
+
+/**
+ * 환경별 색 클래스.
+ *
+ * 운영과 테스트를 나란히 놓으면 이름만으로는 잘 안 걸린다. 색이 붙어야 눈에 먼저 들어온다.
+ * 어느 색인지는 **`ENV_FOLDERS` 의 순서**로 정한다 — 환경 이름(`prod` · `stage` · `운영`)은
+ * 프로젝트마다 달라서 이름으로 색을 박아 둘 수가 없다. 순서를 바꾸면 색도 따라간다.
+ *
+ * 설정에 없는 id 면 빈 문자열 — 그때는 태그가 예전처럼 좌/우 색(빨강·초록)을 쓴다.
+ */
+export function envColorClass(id: string): string {
+  const index = ENV_FOLDERS.findIndex((e) => e.id === id)
+  return index < 0 ? '' : `env-c${index % ENV_COLORS}`
+}
+
 /**
  * 루트와 하위 경로를 잇는다.
  *

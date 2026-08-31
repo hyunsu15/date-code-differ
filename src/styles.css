@@ -897,6 +897,37 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .pick.right .side-tag,
 .pane-head.right .side-tag { background: var(--add-bg); color: var(--add-fg); }
 
+/* 환경별 색 — 운영과 테스트를 나란히 놓으면 이름만으로는 잘 안 걸린다.
+   어느 색인지는 change/config.ts 의 ENV_FOLDERS 순서로 정해진다 (envFolder.ts).
+
+   빨강·초록은 쓰지 않는다. 이 화면에서 그 둘은 이미 삭제·추가라는 뜻이라,
+   환경 태그에 쓰면 왼쪽 운영 태그가 "삭제됨" 으로 읽힌다.
+   env-select 의 화살표는 currentColor 라 글자색을 그대로 따라간다. */
+.pick .side-tag.env-c0,
+.pane-head .side-tag.env-c0 { background: rgba(240, 136, 62, 0.16); color: #f0883e; }
+
+.pick .side-tag.env-c1,
+.pane-head .side-tag.env-c1 { background: rgba(121, 192, 255, 0.16); color: #79c0ff; }
+
+.pick .side-tag.env-c2,
+.pane-head .side-tag.env-c2 { background: rgba(247, 120, 186, 0.16); color: #f778ba; }
+
+.pick .side-tag.env-c3,
+.pane-head .side-tag.env-c3 { background: rgba(57, 197, 207, 0.16); color: #39c5cf; }
+
+/* 라이트에서는 위 색이 배경에 묻는다 — 글자를 진하게, 배경을 옅게 바꾼다 */
+[data-theme='light'] .pick .side-tag.env-c0,
+[data-theme='light'] .pane-head .side-tag.env-c0 { background: #fff1e5; color: #bc4c00; }
+
+[data-theme='light'] .pick .side-tag.env-c1,
+[data-theme='light'] .pane-head .side-tag.env-c1 { background: #ddf4ff; color: #0969da; }
+
+[data-theme='light'] .pick .side-tag.env-c2,
+[data-theme='light'] .pane-head .side-tag.env-c2 { background: #ffeff7; color: #bf3989; }
+
+[data-theme='light'] .pick .side-tag.env-c3,
+[data-theme='light'] .pane-head .side-tag.env-c3 { background: #ddf4f5; color: #1b7c83; }
+
 /* 환경 선택 — 태그 자리에 그대로 들어간다 (좌우가 각각 고른다).
    배경색은 위 .side-tag 규칙에서 오고, 여기서는 화살표만 얹는다 */
 .snapshot-picker .pick .env-select {

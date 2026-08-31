@@ -115,6 +115,8 @@ export interface PickerSide {
   snapshots: Snapshot[]
   /** 지금 고른 날짜 폴더 */
   value: string
+  /** 환경 색 클래스 (`env-c0` …). 환경 설정이 없으면 빈 문자열 */
+  tagClass: string
 }
 
 interface SnapshotPickerProps {
@@ -160,7 +162,7 @@ export default function SnapshotPicker({
    */
   const envTag = (side: Side, state: PickerSide): ReactNode => (
     <select
-      className="side-tag env-select"
+      className={`side-tag env-select ${state.tagClass}`}
       value={state.envId}
       onChange={(e) => onChangeEnv(side, e.target.value)}
       disabled={loading}

@@ -318,6 +318,14 @@ interface DiffViewerProps {
    */
   leftTag: string
   rightTag: string
+  /**
+   * 그 표시에 입힐 색 클래스.
+   * 환경 이름을 보여줄 때만 환경 색이 온다 — `이전`/`이후` 라고 쓰여 있으면
+   * 빈 문자열이고, 그때는 예전처럼 좌/우 색(빨강·초록)을 쓴다.
+   * **글자와 색이 항상 같은 것을 가리키게** 하기 위한 규칙이다.
+   */
+  leftTagClass: string
+  rightTagClass: string
   viewMode: ViewMode
   context: number
   wrap: boolean
@@ -342,6 +350,8 @@ export default function DiffViewer({
   rightLabel,
   leftTag,
   rightTag,
+  leftTagClass,
+  rightTagClass,
   viewMode,
   context,
   wrap,
@@ -574,7 +584,7 @@ export default function DiffViewer({
     <div className="split-panes">
       <div className={cx('pane', wrapCls)} ref={paneA} data-side="left">
         <div className="pane-head left">
-          <span className="side-tag">{leftTag}</span>
+          <span className={`side-tag ${leftTagClass}`}>{leftTag}</span>
           {leftLabel}
           {leftText == null && <span className="pane-missing">이 스냅샷에 없음</span>}
         </div>
@@ -583,7 +593,7 @@ export default function DiffViewer({
 
       <div className={cx('pane', wrapCls)} ref={paneB} data-side="right">
         <div className="pane-head right">
-          <span className="side-tag">{rightTag}</span>
+          <span className={`side-tag ${rightTagClass}`}>{rightTag}</span>
           {rightLabel}
           {rightText == null && <span className="pane-missing">이 스냅샷에 없음</span>}
         </div>

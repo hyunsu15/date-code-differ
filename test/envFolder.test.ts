@@ -11,6 +11,7 @@ import {
   ENV_CHOICES,
   ENV_FOLDERS,
   envById,
+  envColorClass,
   envPath,
   joinRoot,
   parseEnvId,
@@ -228,4 +229,22 @@ test('고른 환경은 실제로 붙일 경로를 돌려준다', () => {
   if (!first) return
   assert.equal(envPath(first.id), first.path)
   assert.equal(joinRoot('/srv/release', envPath(first.id)), `/srv/release/${first.path}`)
+})
+
+/* ---------------- 환경별 색 ---------------- */
+
+test('환경마다 다른 색이 붙는다 — 운영과 테스트를 색으로도 가른다', () => {
+  const classes = ENV_FOLDERS.map((e) => envColorClass(e.id))
+  assert.equal(new Set(classes).size, classes.length, `색이 겹치면 안 된다: ${classes}`)
+  for (const cls of classes) assert.match(cls, /^env-c\d$/)
+})
+
+test('색은 목록 순서로 정해진다 — 환경 이름은 프로젝트마다 다르다', () => {
+  assert.equal(envColorClass(ENV_FOLDERS[0].id), 'env-c0')
+  if (ENV_FOLDERS.length > 1) assert.equal(envColorClass(ENV_FOLDERS[1].id), 'env-c1')
+})
+
+test('없는 id 는 색을 주지 않는다 — 그때는 좌/우 색을 그대로 쓴다', () => {
+  assert.equal(envColorClass('없는환경'), '')
+  assert.equal(envColorClass(''), '')
 })

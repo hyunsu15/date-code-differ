@@ -11,6 +11,7 @@ import SettingsPanel from './features/settings/SettingsPanel.tsx'
 import {
   ENV_CHOICES,
   envById,
+  envColorClass,
   envPath,
   loadEnvPair,
   saveEnvPair,
@@ -561,6 +562,13 @@ export default function App() {
     sameSource ? fallback : envById(envId).label || fallback
   const leftTag = sideTag(envPair.left, '이전')
   const rightTag = sideTag(envPair.right, '이후')
+
+  /**
+   * 색은 **글자가 가리키는 것**을 따른다.
+   * 환경 이름이 쓰여 있으면 환경 색, `이전`/`이후` 면 좌/우 색(빨강·초록)이다.
+   * 날짜 칸의 선택은 늘 환경 이름을 보여주므로 거기서는 항상 환경 색을 쓴다.
+   */
+  const sideTagClass = (envId: string): string => (sameSource ? '' : envColorClass(envId))
   const setOpt = (k: keyof DiffOptions) => (e: ChangeEvent<HTMLInputElement>) =>
     setOptions((o) => ({ ...o, [k]: e.target.checked }))
 
@@ -600,8 +608,18 @@ export default function App() {
 
         {/* 환경 선택은 좌우 칸 안에 있다 — 한쪽만 바꿔 운영↔테스트를 견줄 수 있어야 한다 */}
         <SnapshotPicker
-          left={{ envId: envPair.left, snapshots: leftLoaded.items, value: left }}
-          right={{ envId: envPair.right, snapshots: rightLoaded.items, value: right }}
+          left={{
+            envId: envPair.left,
+            snapshots: leftLoaded.items,
+            value: left,
+            tagClass: envColorClass(envPair.left),
+          }}
+          right={{
+            envId: envPair.right,
+            snapshots: rightLoaded.items,
+            value: right,
+            tagClass: envColorClass(envPair.right),
+          }}
           envChoices={ENV_CHOICES}
           sameSource={sameSource}
           onChangeSnapshot={changeSide}
@@ -913,6 +931,8 @@ export default function App() {
                 rightLabel={right}
                 leftTag={leftTag}
                 rightTag={rightTag}
+                leftTagClass={sideTagClass(envPair.left)}
+                rightTagClass={sideTagClass(envPair.right)}
                 viewMode={viewMode}
                 context={effectiveContext}
                 wrap={wrap}
