@@ -16,10 +16,13 @@ import type { ComparedFile, PackageChange, SourceConfig } from '../src/types.ts'
 /**
  * 외부 폴더 읽기는 fs 라는 외부 경계라 mock 하지 않고
  * 저장소에 함께 들어있는 `sample-code` 를 실제 fixture 로 쓴다.
+ *
+ * 예시 폴더는 환경(`prod` · `test`)으로 나뉘어 있다 — 화면에서 운영을 고른 것과 같은 위치다.
+ * 환경을 고르는 일 자체는 화면이 하고(`withEnv`), 여기서는 그 결과 경로만 받는다.
  */
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const cfg = readRepositoryConfig()
-const LOCAL: SourceConfig = { mode: 'local', root: './sample-code', encoding: 'auto' }
+const LOCAL: SourceConfig = { mode: 'local', root: './sample-code/prod', encoding: 'auto' }
 const source = createSource(LOCAL, projectRoot)
 const key = sourceKey(LOCAL, projectRoot)
 

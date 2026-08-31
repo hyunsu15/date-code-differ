@@ -4,13 +4,12 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
-  DEFAULT_PREFIX_ID,
+  DEFAULT_ENV_ID,
   DEFAULT_PRESET_ID,
-  FOLDER_PREFIXES,
+  ENV_FOLDERS,
   SCAN,
   SOURCE_PRESETS,
 } from '../change/config.example.ts'
-import { ALL_PREFIXES_ID } from '../src/types.ts'
 import { missingFields } from '../src/features/settings/sourceSettings.ts'
 import { readRepositoryConfig } from '../server/snapshotRepository.ts'
 
@@ -57,25 +56,38 @@ test('템플릿의 폴더 프리셋은 함께 들어있는 예시 폴더를 가�
   assert.ok(stat.isDirectory(), `${resolved} 가 실제로 있어야 한다`)
 })
 
-test('템플릿에는 운영·테스트·개발 접두사가 들어 있다', () => {
+test('템플릿에는 운영·테스트 환경이 들어 있다', () => {
   assert.deepEqual(
-    FOLDER_PREFIXES.map((p) => p.id),
-    ['prod', 'test', 'dev']
+    ENV_FOLDERS.map((e) => e.id),
+    ['prod', 'test']
   )
-  for (const item of FOLDER_PREFIXES) {
+})
+
+test('템플릿 환경 항목은 id·label·path 가 모두 채워져야 한다', () => {
+  const ids = ENV_FOLDERS.map((e) => e.id)
+  assert.equal(new Set(ids).size, ids.length, 'id 가 겹치면 선택이 어긋난다')
+  for (const item of ENV_FOLDERS) {
     assert.ok(item.label, `${item.id}: label`)
-    assert.ok(item.prefix.trim(), `${item.id}: prefix`)
-    assert.notEqual(item.id, ALL_PREFIXES_ID, "'all' 은 전체 보기 예약 id")
+    assert.ok(item.path.trim(), `${item.id}: path`)
   }
 })
 
-test('템플릿 접두사 id 는 겹치지 않는다', () => {
-  const ids = FOLDER_PREFIXES.map((p) => p.id)
-  assert.equal(new Set(ids).size, ids.length)
+test('템플릿의 환경 폴더는 예시 폴더에 실제로 있다 — 아무것도 안 고쳐도 열려야 한다', async () => {
+  const local = SOURCE_PRESETS.find((p) => p.source.mode === 'local')
+  assert.ok(local)
+
+  for (const env of ENV_FOLDERS) {
+    const resolved = path.resolve(projectRoot, local.source.root, env.path)
+    const stat = await fs.stat(resolved)
+    assert.ok(stat.isDirectory(), `${resolved} 가 실제로 있어야 한다`)
+  }
 })
 
-test('템플릿의 기본 접두사는 전체 보기 — 복사하자마자 폴더가 숨지 않는다', () => {
-  assert.equal(DEFAULT_PREFIX_ID, ALL_PREFIXES_ID)
+test('템플릿의 기본 환경은 목록에 있는 항목이다 — 첫 화면이 빈 폴더를 보지 않는다', () => {
+  assert.ok(
+    ENV_FOLDERS.some((e) => e.id === DEFAULT_ENV_ID),
+    `DEFAULT_ENV_ID('${DEFAULT_ENV_ID}') 에 해당하는 환경이 없다`
+  )
 })
 
 test('템플릿의 훑기 설정은 Pro*C 를 포함한다', () => {

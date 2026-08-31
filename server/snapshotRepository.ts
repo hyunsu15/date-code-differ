@@ -53,28 +53,18 @@ export function clearCache(): void {
 }
 
 /**
- * 폴더명이 접두사로 시작하는지 — 대소문자는 구분하지 않는다.
- * 접두사가 비어 있으면(= 전체 보기) 전부 통과시킨다.
- */
-export function matchesPrefix(name: string, prefix: string): boolean {
-  const want = prefix.trim().toLowerCase()
-  return want === '' || name.toLowerCase().startsWith(want)
-}
-
-/**
  * 날짜 스냅샷 목록.
  * 날짜로 읽히는 폴더가 최신순으로 앞에, 나머지는 이름 역순으로 뒤에 온다.
  *
- * @param prefix 폴더 이름 접두사(`prod` 등). 비우면 거르지 않는다
+ * 환경(운영/테스트/개발)은 여기서 거르지 않는다 — 화면이 고른 환경 폴더를 루트에 붙여
+ * 보내므로, 이 함수가 보는 루트가 이미 그 환경이다.
  */
 export async function listSnapshots(
   source: SnapshotSource,
   cfg: RepositoryConfig,
-  key: string,
-  prefix = ''
+  key: string
 ): Promise<Snapshot[]> {
-  // 훑기 전에 거른다 — 스냅샷마다 파일을 세는 게 비싼 쪽이다 (SSH 면 폴더당 find 한 번)
-  const names = (await source.listSnapshotDirs()).filter((n) => matchesPrefix(n, prefix))
+  const names = await source.listSnapshotDirs()
 
   const items: Snapshot[] = []
   for (const name of names) {

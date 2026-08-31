@@ -18,7 +18,7 @@
    (npm install · dev · build · test 앞에서). 이미 있으면 덮어쓰지 않습니다.
    ================================================================== */
 
-import type { FolderPrefix, ScanConfig, SourcePreset } from '../src/types.ts'
+import type { EnvFolder, ScanConfig, SourcePreset } from '../src/types.ts'
 
 /* ------------------------------------------------------------------
    비교 대상 위치 프리셋
@@ -84,36 +84,49 @@ export const SOURCE_PRESETS: SourcePreset[] = [
 export const DEFAULT_PRESET_ID = 'ssh'
 
 /* ------------------------------------------------------------------
-   날짜 폴더 이름 접두사 — 운영 / 테스트 / 개발
+   환경 폴더 — 운영 / 테스트 / 개발
 
-   한 폴더에 환경별 스냅샷이 **섞여 있을 때** 씁니다.
+   환경이 루트 아래 **폴더로 나뉘어 있을 때** 씁니다.
 
      /home/deploy/release/
-       prod_20260801/   test_20260801/   dev_20260901/   ...
+       prod/  20260801/  20260901/  ...
+       test/  20260801/  ...
+       dev/   20260901/  ...
 
-   화면 위쪽에서 고르면 그 접두사로 시작하는 폴더만 목록에 남습니다.
-   대소문자는 구분하지 않고, 뒤에 붙는 `_` `-` 는 적어도 되고 안 적어도 됩니다.
+   화면 위쪽에서 고르면 그 경로가 위 프리셋의 `root` 뒤에 붙습니다.
+   운영을 누르면 `/home/deploy/release/prod` 가 곧 루트가 되고,
+   날짜 목록도 비교도 전부 그 아래에서 일어납니다.
 
-   환경이 **폴더로 나뉘어 있으면**(`release/prod/20260801`) 이걸 쓰지 말고
-   위 SOURCE_PRESETS 에 환경별 프리셋(root: '…/release/prod')을 하나씩 두세요.
+     { id: 'prod', label: '운영', path: 'prod' }   →  <root>/prod
+     { id: 'qa',   label: 'QA',   path: 'rel/qa' } →  <root>/rel/qa   (여러 단도 됩니다)
 
-   접두사를 쓰지 않으면 아래 배열을 비우면 됩니다 — 화면에서 고르는 자리도 사라집니다.
+   하나라도 적으면 **항상 그중 하나가 골라져 있습니다.** "루트를 그대로" 라는 선택지는
+   두지 않습니다 — 그걸 고르면 날짜가 아니라 `prod` `test` `dev` 가 날짜 칸에 올라옵니다.
+
+   날짜 폴더가 루트에 **바로** 있으면(`release/20260801`) 아래 배열을 비워 두세요.
+   화면에서 고르는 자리도 함께 사라지고 루트를 그대로 읽습니다.
+
+   서버·계정까지 다르면 이걸 쓰지 말고 위 SOURCE_PRESETS 에
+   환경별 프리셋을 하나씩 두세요.
+
    고치면 화면에 바로 반영됩니다.
    ------------------------------------------------------------------ */
 
-export const FOLDER_PREFIXES: FolderPrefix[] = [
-  { id: 'prod', label: '운영', prefix: 'prod', description: '운영 반영본' },
-  { id: 'test', label: '테스트', prefix: 'test', description: '테스트 서버 반영본' },
-  { id: 'dev', label: '개발', prefix: 'dev', description: '개발 서버 반영본' },
+export const ENV_FOLDERS: EnvFolder[] = [
+  // 실제 서버의 폴더 이름으로 고치세요.
+  // (아래 두 줄은 함께 들어있는 예시 폴더 `sample-code/prod` · `sample-code/test` 와 맞춰 둔 값입니다)
+  { id: 'prod', label: '운영', path: 'prod', description: '운영 반영본' },
+  { id: 'test', label: '테스트', path: 'test', description: '테스트 서버 반영본' },
+  // { id: 'dev', label: '개발', path: 'dev', description: '개발 서버 반영본' },
 ]
 
 /**
- * 처음 열었을 때(저장된 선택이 없을 때) 고를 접두사.
+ * 처음 열었을 때(저장된 선택이 없을 때) 고를 환경.
  *
- * 위 `FOLDER_PREFIXES` 의 `id` 중 하나를 적습니다.
- * `'all'` 이면 거르지 않고 전부 봅니다. 없는 id 를 적어도 전부 보기로 떨어집니다.
+ * 위 `ENV_FOLDERS` 의 `id` 중 하나를 적습니다.
+ * 없는 id 를 적으면 목록의 첫 항목을 씁니다. 목록이 비어 있으면 이 값은 쓰이지 않습니다.
  */
-export const DEFAULT_PREFIX_ID = 'all'
+export const DEFAULT_ENV_ID = 'prod'
 
 /* ------------------------------------------------------------------
    훑기 설정 — 어떤 파일을 비교 대상으로 볼지

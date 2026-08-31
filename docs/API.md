@@ -111,17 +111,16 @@ GET /api/v1/snapshots
 | 파라미터 | 타입 | 필수 | 의미 |
 | -------- | ---- | ---- | ---- |
 | `refresh` | flag | N | 서버 캐시를 비우고 외부 폴더를 다시 읽는다 |
-| `prefix` | String | N | 폴더 이름 접두사. 이 값으로 **시작하는** 폴더만 돌려준다 (대소문자 무시). 비우면 전부 |
 
-`prefix` 는 한 폴더에 환경별 스냅샷이 섞여 있을 때 쓴다 (`prod_20260801` · `test_20260801`).
-파일을 훑기 **전에** 거르므로, 걸러진 폴더는 `fileCount` 계산 비용도 들지 않는다
-(SSH 면 폴더당 `find` 한 번). 맞는 폴더가 없으면 오류가 아니라 빈 `items` 다.
+환경(운영/테스트/개발)을 가리키는 파라미터는 **없다.** 화면이 고른 환경 폴더를
+`root` 에 이미 붙여 보내므로, 서버가 보는 루트 자체가 그 환경이다.
 
 ```
-GET /api/v1/snapshots?mode=local&root=D%3A%2Frelease&prefix=prod
+GET /api/v1/snapshots?mode=local&root=D%3A%2Frelease%2Fprod
 ```
 
-비교(`/comparisons`)에는 이 파라미터가 없다 — 좌우는 이미 확정된 폴더명으로 지정하기 때문이다.
+`/comparisons` · `/comparisons/files` 도 같은 `root` 로 물어보게 되어, 목록과 비교가
+서로 다른 환경을 보는 일이 생기지 않는다. 캐시 키에도 `root` 가 들어가므로 환경별로 저절로 갈린다.
 
 **200 OK**
 

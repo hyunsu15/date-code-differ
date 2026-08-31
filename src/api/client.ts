@@ -53,16 +53,15 @@ function optionParams(options: DiffOptions): Record<string, string> {
 /**
  * 대상 폴더의 날짜 스냅샷 목록.
  *
- * @param prefix 폴더 이름 접두사(`prod` 등). 비우면 거르지 않는다 — 거르는 일은 서버가 한다
+ * 환경(운영/테스트/개발)은 따로 보내지 않는다 — 고른 환경 폴더가 이미 `source.root` 에
+ * 붙어 있어서, 서버가 보는 루트 자체가 그 환경이다 (`features/settings/envFolder.ts`).
  */
 export function fetchSnapshots(
   source: SourceConfig,
-  prefix = '',
   refresh = false
 ): Promise<SnapshotListResponse> {
   return getJson<SnapshotListResponse>('/snapshots', {
     ...sourceParams(source),
-    ...(prefix ? { prefix } : {}),
     ...(refresh ? { refresh: '1' } : {}),
   })
 }

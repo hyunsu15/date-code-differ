@@ -45,11 +45,11 @@ export const SOURCE_PRESETS: SourcePreset[] = [
 /** 처음 열었을 때 고를 프리셋 */
 export const DEFAULT_PRESET_ID = 'ssh'
 
-/** 날짜 폴더 이름 접두사 — 한 폴더에 prod_/test_/dev_ 가 섞여 있을 때 */
-export const FOLDER_PREFIXES: FolderPrefix[] = [
-  { id: 'prod', label: '운영', prefix: 'prod' }, ...
+/** 환경 폴더 — 루트 아래가 prod/ test/ dev/ 로 나뉘어 있을 때. 안 나뉘어 있으면 빈 배열 */
+export const ENV_FOLDERS: EnvFolder[] = [
+  { id: 'prod', label: '운영', path: 'prod' }, ...
 ]
-export const DEFAULT_PREFIX_ID = 'all'
+export const DEFAULT_ENV_ID = 'prod'
 
 export const SCAN: ScanConfig = {
   extensions: ['pc', 'pch', 'h', 'sql', 'pks', 'pkb'],
@@ -64,7 +64,7 @@ export const SCAN: ScanConfig = {
 | 고치면 | 반영 시점 |
 | ------ | --------- |
 | `SOURCE_PRESETS` | **바로** (화면이 다시 읽는다) |
-| `FOLDER_PREFIXES` | **바로** (화면이 다시 읽는다) |
+| `ENV_FOLDERS` | **바로** (화면이 다시 읽는다) |
 | `SCAN` | 개발 서버 재시작 후 |
 
 ---
@@ -162,40 +162,48 @@ UTF-8 BOM 은 떼어내 소스 첫 줄에 보이지 않는 글자가 남지 않�
 
 ---
 
-## 폴더 접두사 — 운영 / 테스트 / 개발
+## 환경 폴더 — 운영 / 테스트 / 개발
 
-한 폴더에 환경별 스냅샷이 **이름으로 섞여** 쌓일 때 쓴다.
+환경이 루트 아래 **폴더로 나뉘어** 쌓일 때 쓴다.
 
 ```
-/home/deploy/release/
-├─ prod_20260801/   prod_20260901/     ← 운영
-├─ test_20260801/                      ← 테스트
-└─ dev_20260901/                       ← 개발
+/home/deploy/release/          ← 프리셋의 root
+├─ prod/   20260801/  20260901/     ← 운영
+├─ test/   20260801/                ← 테스트
+└─ dev/    20260901/                ← 개발
 ```
 
-화면 위 날짜 칸 왼쪽에서 **전체 · 운영 · 테스트 · 개발** 중 하나를 고르면
-그 접두사로 **시작하는** 폴더만 날짜 목록에 남는다. 대소문자는 구분하지 않는다.
+화면 위 날짜 칸 왼쪽에서 **운영 · 테스트 · 개발** 중 하나를 고르면
+그 경로가 프리셋의 `root` **뒤에 붙는다**. 운영을 누르면
+`/home/deploy/release/prod` 가 곧 루트가 되고, 날짜 목록도 비교도 그 아래에서 일어난다.
 
 ```ts
-export const FOLDER_PREFIXES: FolderPrefix[] = [
-  { id: 'prod', label: '운영',   prefix: 'prod' },
-  { id: 'test', label: '테스트', prefix: 'test' },
-  { id: 'dev',  label: '개발',   prefix: 'dev'  },
+export const ENV_FOLDERS: EnvFolder[] = [
+  { id: 'prod', label: '운영',   path: 'prod' },
+  { id: 'test', label: '테스트', path: 'test' },
+  { id: 'dev',  label: '개발',   path: 'dev'  },
 ]
 
-/** 처음 열었을 때 고를 값. 'all' 이면 거르지 않고 전부 */
-export const DEFAULT_PREFIX_ID = 'all'
+/** 처음 열었을 때 고를 값. 없는 id 면 목록의 첫 항목 */
+export const DEFAULT_ENV_ID = 'prod'
 ```
 
-- 고른 값은 이 브라우저의 localStorage 에 남는다. 없는 id 는 **전체**로 떨어진다.
-- 배열을 비우면 고르는 자리 자체가 화면에서 사라진다.
-- 거르는 일은 **서버**가 한다 — 스냅샷마다 파일을 훑는 게 비싼 쪽이라 훑기 전에 거른다
-  (SSH 면 폴더당 `find` 한 번). 비교 API 에는 이 값이 필요 없다.
-- 환경이 **폴더로 나뉘어 있으면**(`release/prod/20260801`) 이게 아니라
-  환경별 `SOURCE_PRESETS` 항목을 하나씩 두는 편이 낫다.
+- `path` 는 여러 단도 된다 (`'rel/qa'` → `<root>/rel/qa`).
+- 하나라도 적혀 있으면 **항상 그중 하나가 골라져 있다.** "루트를 그대로" 라는 선택지는 없다 —
+  그걸 고르면 날짜가 아니라 `prod` `test` `dev` 가 이전/이후 칸에 올라오기 때문이다.
+- 고른 값은 이 브라우저의 localStorage 에 남는다. 없는 id 는 **첫 항목**으로 떨어진다.
+- 거르는 게 아니라 **위치를 바꾸는** 방식이라 서버에는 환경이라는 개념이 없다 —
+  붙인 결과가 그냥 그 요청의 루트가 된다. 그래서 캐시도 환경별로 저절로 갈린다.
+- 날짜 폴더가 루트에 **바로** 있으면(`release/20260801`) 배열을 **비운다.**
+  고르는 자리 자체가 화면에서 사라지고 루트를 그대로 읽는다.
+- 템플릿에는 `prod` · `test` 가 들어 있다. 함께 들어있는 `sample-code/` 가 같은 배치라
+  아무것도 안 고쳐도 **운영 ↔ 테스트** 를 눌러 볼 수 있다.
+- 서버·계정까지 다르면 이게 아니라 환경별 `SOURCE_PRESETS` 항목을 하나씩 두는 편이 낫다.
 
-> 예전에 만들어 둔 `change/config.ts` 에 이 항목이 없으면 접두사 고르기는 그냥 숨는다
+> 예전에 만들어 둔 `change/config.ts` 에 이 항목이 없으면 환경 고르기는 그냥 숨는다
 > (화면은 정상 동작한다). `npm run dev` 가 시작할 때 안내를 한 줄 남긴다.
+> 이름 접두사(`prod_20260801`)로 거르던 예전 방식(`FOLDER_PREFIXES`)은 없어졌다 —
+> 그 블록을 `config.example.ts` 의 `ENV_FOLDERS` 로 바꿔 넣으면 된다.
 
 ---
 
@@ -244,7 +252,7 @@ export const DEFAULT_PREFIX_ID = 'all'
 
 | 영역 | 하는 일 |
 | ---- | ------- |
-| 상단 헤더 | 폴더 접두사(운영/테스트/개발) 선택, 비교할 **이전 → 이후** 날짜 폴더 선택, 외부 폴더 다시 읽기(⟳) |
+| 상단 헤더 | 환경 폴더(운영/테스트/개발) 선택, 비교할 **이전 → 이후** 날짜 폴더 선택, 외부 폴더 다시 읽기(⟳) |
 | 패키지 변경 밴드 | 어느 패키지가 신규·삭제·변경됐는지 한 줄 요약. 칩을 누르면 그 패키지로 파일 목록이 좁혀진다 |
 | 옵션 바 | 코드 표시 범위(변경만/전체), 문맥 줄 수, 나란히/통합, 무시 옵션, **코드 글자 크기** |
 | 왼쪽 목록 | 전체 유사도 요약 + 파일 목록. 기본은 **변경된 파일만** |
@@ -316,7 +324,9 @@ src/
     diff/                   diff 뷰어 · 이동 · 검색
     summary/                전체 유사도 카드
 
-sample-code/                예시 외부 폴더 (날짜 스냅샷 4개)
+sample-code/                예시 외부 폴더
+  prod/                     운영 — 날짜 스냅샷 4개
+  test/                     테스트 — 날짜 스냅샷 2개 (주문 모듈만)
 test/                       테스트
 docs/                       사용설명서 · API 문서 · 작업 기록
 ```
@@ -354,7 +364,15 @@ dev·build·test·typecheck 는 시작 전에 `change/config.ts` 가 있는지 �
 
 ## 예시 폴더로 확인해 보기
 
-`sample-code/` 에는 날짜 스냅샷 4개가 들어 있다. 조합을 바꿔 가며 각 상태를 확인할 수 있다.
+`sample-code/` 는 실제 배치처럼 환경으로 나뉘어 있다.
+
+```
+sample-code/
+├─ prod/   2026-06-01/  2026-07-01/  2026-08-01/  2026-09-01/    ← 운영
+└─ test/   2026-08-01/  2026-09-01/                              ← 테스트 (주문 모듈만)
+```
+
+**운영**을 고른 상태에서 날짜 조합을 바꿔 가며 각 상태를 확인할 수 있다.
 
 | 비교 | 확인할 수 있는 것 |
 | ---- | ---------------- |
@@ -365,3 +383,7 @@ dev·build·test·typecheck 는 시작 전에 `change/config.ts` 가 있는지 �
 | 2026-06-01 → 2026-09-01 | 넉 달치 누적 변경 |
 
 `ord/ord_create.pc` 는 네 스냅샷에서 계속 바뀌므로 코드 diff·문맥 접기를 보기에 좋다.
+
+**테스트**로 바꾸면 같은 `2026-08-01 → 2026-09-01` 이 다르게 나온다 — 테스트 서버에만
+올라간 변경(`chk_isin_limit`, 종목별 주문 한도)이 하나 더 붙어 있다. 환경 버튼이
+목록을 거르는 게 아니라 **읽는 위치를 바꾼다**는 걸 눈으로 확인할 수 있다.

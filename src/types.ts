@@ -84,25 +84,25 @@ export interface SourcePreset {
 }
 
 /**
- * `change/config.ts` 에 두는 **날짜 폴더 이름 접두사** 프리셋.
+ * `change/config.ts` 에 두는 **환경 폴더** — 운영 / 테스트 / 개발.
  *
- * 한 폴더에 환경별 스냅샷이 섞여 있을 때 (`prod_20260801` · `test_20260801` · `dev_20260801`)
- * 어느 쪽을 볼지 화면에서 고른다. 고르면 그 접두사로 시작하는 폴더만 목록에 남는다.
+ * 환경이 루트 아래 폴더로 나뉘어 있을 때 (`release/prod/20260801` · `release/test/20260801`)
+ * 어느 환경을 볼지 화면에서 고른다. 고른 환경의 `path` 가 루트 뒤에 붙어
+ * **그 폴더가 곧 새 루트**가 된다 — 날짜 목록도 비교도 전부 그 아래에서 일어난다.
  *
- * 환경이 폴더로 나뉘어 있으면(`release/prod/20260801`) 이게 아니라
- * 환경별 `SourcePreset` 을 하나씩 두면 된다.
+ * 하나라도 적혀 있으면 **항상 그중 하나가 골라져 있다.** 루트를 그대로 읽고 싶으면
+ * (날짜 폴더가 루트에 바로 있는 배치) 배열을 비우면 된다 — 고르는 자리도 함께 사라진다.
+ *
+ * 서버·계정까지 다르면 이게 아니라 환경별 `SourcePreset` 을 하나씩 두면 된다.
  */
-export interface FolderPrefix {
-  /** 저장·쿼리에 쓰는 식별자. 바꾸면 저장된 선택이 풀린다 */
+export interface EnvFolder {
+  /** 저장에 쓰는 식별자. 바꾸면 저장된 선택이 풀린다 */
   id: string
   label: string
-  /** 폴더명이 이 문자열로 시작하면 목록에 남긴다 (대소문자 무시) */
-  prefix: string
+  /** 루트 뒤에 붙일 하위 경로 (`prod`, `release/prod` 처럼 여러 단도 된다) */
+  path: string
   description?: string
 }
-
-/** 접두사를 고르지 않은 상태 — 폴더를 전부 본다. 프리셋 id 로는 쓸 수 없다 */
-export const ALL_PREFIXES_ID = 'all'
 
 /** `change/config.ts` 의 훑기 설정 — 어떤 파일을 비교 대상으로 볼지 */
 export interface ScanConfig {

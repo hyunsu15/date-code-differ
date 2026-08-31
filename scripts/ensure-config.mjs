@@ -36,8 +36,8 @@ const exists = async (file) => {
  */
 const LATER_ADDITIONS = [
   {
-    name: 'FOLDER_PREFIXES',
-    hint: '날짜 폴더 이름 접두사(prod/test/dev) 고르기가 화면에 나오지 않습니다.',
+    name: 'ENV_FOLDERS',
+    hint: '환경 폴더(운영/테스트/개발) 고르기가 화면에 나오지 않습니다.',
   },
 ]
 
