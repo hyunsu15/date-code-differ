@@ -112,15 +112,18 @@ GET /api/v1/snapshots
 | -------- | ---- | ---- | ---- |
 | `refresh` | flag | N | 서버 캐시를 비우고 외부 폴더를 다시 읽는다 |
 
-환경(운영/테스트/개발)을 가리키는 파라미터는 **없다.** 화면이 고른 환경 폴더를
+환경(운영/테스트)을 가리키는 파라미터는 **없다.** 화면이 고른 환경 폴더를
 `root` 에 이미 붙여 보내므로, 서버가 보는 루트 자체가 그 환경이다.
 
 ```
 GET /api/v1/snapshots?mode=local&root=D%3A%2Frelease%2Fprod
 ```
 
-`/comparisons` · `/comparisons/files` 도 같은 `root` 로 물어보게 되어, 목록과 비교가
-서로 다른 환경을 보는 일이 생기지 않는다. 캐시 키에도 `root` 가 들어가므로 환경별로 저절로 갈린다.
+이 엔드포인트는 **한 번에 한 위치**만 본다. 좌우가 서로 다른 환경이면 화면이 각 `root`
+로 한 번씩 부른다. 캐시 키에도 `root` 가 들어가므로 환경별로 저절로 갈린다.
+
+비교 쪽(`/comparisons` · `/comparisons/files`)은 좌우가 다를 수 있어 `rightRoot` 를
+더 받는다 — 아래 참고.
 
 **200 OK**
 
@@ -173,9 +176,22 @@ GET /api/v1/comparisons?left={id}&right={id}
 
 | 파라미터 | 타입 | 필수 | 의미 |
 | -------- | ---- | ---- | ---- |
-| `left` | String | **Y** | 이전 스냅샷 id |
-| `right` | String | **Y** | 이후 스냅샷 id |
+| `left` | String | **Y** | 왼쪽(기준) 스냅샷 id |
+| `right` | String | **Y** | 오른쪽(견줄) 스냅샷 id |
+| `rightRoot` | String | N | 오른쪽이 **다른 폴더**일 때만. 없으면 양쪽 다 `root` 를 본다 |
 | 무시 옵션 4종 | flag | N | 위 "공통" 참고 |
+
+`rightRoot` 는 운영 ↔ 테스트처럼 좌우가 다른 환경 폴더일 때 쓴다. 서버·계정·인코딩은
+좌우가 같다는 전제라(환경은 루트 아래 하위 폴더다) 갈리는 값은 위치 하나뿐이다.
+
+```
+GET /api/v1/comparisons?mode=local&root=.%2Fsample-code%2Fprod
+  &rightRoot=.%2Fsample-code%2Ftest&left=2026-09-01&right=2026-08-01
+```
+
+**왼쪽이 오른쪽보다 최신이어도 된다.** 환경마다 배포 시점이 달라 "운영 9/1 vs 테스트
+8/1"(테스트가 뒤처진 상태)은 정상적인 질문이다. 순서 규칙은 화면이 **같은 위치일 때만**
+건다.
 
 **200 OK**
 
@@ -250,8 +266,9 @@ GET /api/v1/comparisons/files?left={id}&right={id}&path={상대경로}
 
 | 파라미터 | 타입 | 필수 | 제약 |
 | -------- | ---- | ---- | ---- |
-| `left` | String | **Y** | 이전 스냅샷 id |
-| `right` | String | **Y** | 이후 스냅샷 id |
+| `left` | String | **Y** | 왼쪽(기준) 스냅샷 id |
+| `right` | String | **Y** | 오른쪽(견줄) 스냅샷 id |
+| `rightRoot` | String | N | 오른쪽이 **다른 폴더**일 때만. 없으면 양쪽 다 `root` 를 본다 |
 | `path` | String | **Y** | 날짜 폴더 기준 상대 경로. `..`·절대 경로·빈 세그먼트는 거부된다 |
 
 **200 OK**
