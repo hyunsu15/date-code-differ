@@ -3,8 +3,7 @@
 개발/미리보기 서버에 붙는 **읽기 전용** API. 외부 폴더를 수정하는 동작은 없다.
 
 기본 경로: `/api/v1`
-지원 메서드: 조회는 `GET`. 비밀번호 등록만 `POST` 하나이고(아래 0번),
-그 밖의 메서드는 404 로 떨어진다.
+지원 메서드: **`GET` 뿐이다.** 그 밖의 메서드는 404 로 떨어진다.
 
 ---
 
@@ -21,11 +20,10 @@
 | `user` | String | mode=ssh 면 **Y** | 원격 계정 |
 | `port` | Number | N | 비우거나 숫자가 아니면 ssh 기본값(22) |
 | `identityFile` | String | N | 개인키 경로. 비우면 ssh 기본 키 |
-| `auth` | String | N | `key`(기본) 또는 `password`. 모르는 값은 `key` 로 본다 |
 | `encoding` | String | N | `auto`(기본) · `utf-8` · `euc-kr`. 모르는 값은 `auto` 로 본다 |
 
-**비밀번호 파라미터는 없다.** `auth=password` 여도 비밀번호 자체는 이 API 로 오지 않는다 —
-터미널의 `npm run ssh-login` 이 아래 엔드포인트로 따로 넣고, 서버 메모리에만 보관한다.
+**자격증명 파라미터는 없다.** SSH 인증은 이 API 가 아니라 **ssh 가 알아서 한다** —
+개인키 · ssh-agent · `~/.ssh/config`. 비밀번호는 받지도, 보관하지도 않는다.
 
 `encoding` 은 로컬·SSH 모두에 적용된다. `auto` 는 UTF-8 로 읽어보고 유효하지 않으면 EUC-KR 로 본다
 (올바른 UTF-8 파일은 항상 UTF-8 로 읽히므로 멀쩡한 파일이 망가지지 않는다).
@@ -42,14 +40,25 @@ GET /api/v1/snapshots?mode=ssh&host=build-01&user=deploy&root=%2Fhome%2Fdeploy%2
 | ---- | ---- | -------- |
 | `SSH_CONFIG_INCOMPLETE` | 400 | `mode=ssh` 인데 host·user·root 중 빈 값이 있다 |
 | `LOCAL_ROOT_EMPTY` | 400 | `mode=local` 인데 `root` 가 비었다 |
-| `SSH_PASSWORD_REQUIRED` | 502 | `auth=password` 인데 서버에 비밀번호가 없다 |
-| `SSH_PASSWORD_REJECTED` | 502 | 비밀번호가 틀렸다 (보관 중이던 값은 지워진다) |
 | `SSH_NOT_FOUND` | 502 | `ssh` 명령이 PATH 에 없다 |
 | `SSH_UNREACHABLE` | 502 | 호스트 이름 해석 실패·접속 거부·타임아웃 |
-| `SSH_AUTH_FAILED` | 502 | 키 인증 실패 |
+| `SSH_AUTH_FAILED` | 502 | 인증 실패 (비밀번호가 틀렸거나 받아주는 방식이 아니다) |
+| `SSH_TIMEOUT` | 502 | 30초 안에 안 끝났다. 개발 서버 터미널의 비밀번호 프롬프트를 아무도 안 받은 경우가 대부분 |
 | `SSH_HOST_KEY` | 502 | `known_hosts` 에 없는 호스트 (자동 수락하지 않는다) |
 | `SSH_FAILED` | 502 | 그 밖의 원격 명령 실패 |
 | `LOCAL_READ_FAILED` | 502 | 로컬 폴더를 읽지 못했다 |
+
+`SSH_` 로 시작하는 오류는 **실행한 ssh 명령을 `message` 끝에 붙여서** 보낸다.
+원격 명령을 이 도구가 조립하므로, 명령을 안 보여주면 무엇이 실패했는지 알 길이 없다.
+터미널에 그대로 붙여넣어 재현할 수 있어야 이 도구 문제인지 서버·계정 문제인지 갈린다.
+비밀번호는 argv 에 싣지 않으므로 이 문자열에 자격증명이 들어갈 일은 없다.
+
+```json
+{
+  "code": "SSH_AUTH_FAILED",
+  "message": "인증에 실패했습니다.\n…\n\n실행한 명령:\nssh -o ConnectTimeout=10 -o StrictHostKeyChecking=yes deploy@build-01 \"ls -1F -- '/home/deploy/release'\""
+}
+```
 
 ---
 
@@ -88,59 +97,6 @@ diff 계산에 쓰는 옵션. **켤 때만** 보내면 되고, 없으면 꺼진 
 | `ignoreCase` | flag | N | 대소문자 차이를 같은 줄로 본다 |
 | `ignoreBlankLines` | flag | N | 빈 줄을 비교에서 뺀다 (화면에는 남는다) |
 | `ignoreComments` | flag | N | 주석 전용 줄을 비교에서 뺀다 (화면에는 남는다) |
-
----
-
-## 0. SSH 비밀번호 등록 (유일한 POST)
-
-```
-POST /api/v1/ssh-credentials
-```
-
-터미널의 `npm run ssh-login` 전용이다. **브라우저는 호출하지 않는다.**
-원격 서버를 건드리지 않고, 이 개발 서버 프로세스 메모리에만 비밀번호를 담는다.
-
-| 본문 | 타입 | 필수 | 제약 |
-| ---- | ---- | ---- | ---- |
-| `target` | String | **Y** | `user@host:port` 형식. 포트를 생략한 접속은 `:22` 로 본다 |
-| `password` | String | **Y** | 빈 값 거부. 본문 최대 8KB |
-
-**200 OK** — `{ "ok": true, "target": "deploy@build-01:22" }`
-
-| 상황 | code | HTTP |
-| ---- | ---- | ---- |
-| `target` 형식이 아님 | `BAD_TARGET` | 400 |
-| 비밀번호가 빔 | `EMPTY_PASSWORD` | 400 |
-| 본문을 읽지 못함 | `BAD_REQUEST` | 400 |
-
-`target` 은 포트를 생략하면 **22 로 채워** 보관한다 (`deploy@build-01` → `deploy@build-01:22`).
-화면이 찾는 키와 형태가 어긋나면, 넣었는데도 "비밀번호가 없습니다" 가 계속 뜨기 때문이다.
-
-값은 로그에 남기지 않는다. 서버를 끄면 사라지고,
-`GET /snapshots?refresh=1&forgetPassword=1` 로도 비울 수 있다.
-
-### 어느 접속이 비밀번호를 기다리는지
-
-```
-GET /api/v1/ssh-credentials
-```
-
-`npm run ssh-login` 전용이다. **대상만** 알려준다 — 비밀번호 값은 어떤 경로로도 나가지 않는다.
-
-**200 OK**
-
-```json
-{ "pending": "deploy@build-01:2222", "registered": ["deploy@build-01:2222"] }
-```
-
-| 필드 | 타입 | 의미 |
-| ---- | ---- | ---- |
-| `pending` | String \| null | 마지막으로 비밀번호가 없거나 틀려서 막힌 접속. 아직 없으면 `null` |
-| `registered` | String[] | 지금 비밀번호를 들고 있는 접속 목록 |
-
-화면은 `change/config.ts` 의 프리셋이 아니라 **직접 입력** 값을 쓸 수도 있다.
-`pending` 이 있어야 `ssh-login` 이 화면과 같은 대상에 비밀번호를 넣을 수 있다.
-`GET /snapshots?refresh=1&forgetPassword=1` 은 `pending` 도 함께 비운다.
 
 ---
 

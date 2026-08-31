@@ -94,56 +94,43 @@ export const SCAN: ScanConfig = {
 | ---- | ---- |
 | 호스트 · 포트 | 포트를 비우면 22 |
 | 계정 | 원격 사용자명 |
-| 인증 방식 | `key`(개인키) 또는 `password`(비밀번호) |
-| 개인키 파일 | `key` 일 때만. 비우면 ssh 기본 키(`~/.ssh/id_*`) |
+| 개인키 파일 | 비우면 ssh 기본 키(`~/.ssh/id_*`) |
 | 원격 경로 | 날짜 폴더들의 부모. `~/release` 처럼 홈 기준도 된다 |
 
-#### 인증 방식
+#### 인증 — ssh 에 맡긴다
 
-**개인키 (`auth: 'key'`, 기본)** — `BatchMode=yes` 로 접속해 아무것도 묻지 않는다.
+이 도구는 **비밀번호를 받지도, 보관하지도, 대신 답하지도 않는다.** `execFile('ssh', ...)` 로
+OpenSSH 클라이언트를 그대로 돌릴 뿐이고, 인증은 ssh 가 평소 하던 대로 한다 —
+개인키 · ssh-agent · `~/.ssh/config`.
 
-**비밀번호 (`auth: 'password'`)** — **비밀번호는 브라우저를 거치지 않는다.**
-설정 파일·localStorage·URL 어디에도 저장하지 않고, 터미널에서 넣어 개발 서버 메모리에만 둔다.
+**`BatchMode` 를 켜지 않는다.** 키로 붙지 않으면 ssh 가 비밀번호를 물어본다. 그 프롬프트는
+화면이 아니라 **`npm run dev` 를 띄운 터미널 창**에 뜬다 (OpenSSH 는 비밀번호를 stdin 이 아니라
+콘솔에서 직접 읽는다). 거기에 입력하면 접속된다.
+
+다만 **접속을 재사용하지 않는다** — 원격 명령마다 `ssh` 를 새로 띄운다.
+
+| 동작 | ssh 접속 수 |
+| ---- | ---------- |
+| 날짜 목록 로딩 | 2 + 날짜 폴더 수 (폴더마다 `find` 한 번) |
+| 좌우 비교 | 파일 수 × 2 |
+| 파일 하나 열기 | 2 |
+
+그래서 키 없이 쓰면 **명령마다 한 번씩** 묻는다. 한 번 훑는 데 수십 번이다.
+아무도 답하지 않으면 `COMMAND_TIMEOUT_MS`(30초) 뒤에 `SSH_TIMEOUT` 으로 끊긴다 —
+터미널 창을 볼 수 없는 환경(IDE 내장 실행·백그라운드)에서는 이 경로로 떨어진다.
+
+프롬프트 없이 쓰려면 공개키를 한 번 등록해 두면 된다.
 
 ```bash
-npm run ssh-login
+ssh-keygen -t ed25519          # 키가 없으면
+ssh-copy-id deploy@build-01    # 공개키 등록 (이때만 비밀번호를 묻는다)
 ```
 
-```
-[code-diff] 접속 대상: deploy@build-01:22
-deploy@build-01:22 비밀번호: ******        ← 화면에 찍히지 않는다
-[code-diff] 개발 서버에 전달했습니다. 화면에서 다시 시도하세요.
-```
+키에 암호를 걸어 뒀다면 ssh-agent 에 한 번 올려 둔다 (`ssh-add`).
+Windows 에서는 `OpenSSH Authentication Agent` 서비스를 켜고 `ssh-add` 하면 된다.
 
-- 서버를 끄면 사라진다. 다시 띄우면 한 번 더 넣어야 한다.
-- 틀리면 보관 중인 값을 지우고 다시 받는다 (틀린 값으로 계속 재시도하지 않는다).
-- 개발 서버 포트가 다르면 `-- --port 5182`.
-
-**어느 서버의 비밀번호인지**는 이 순서로 정한다.
-
-| 순서 | 무엇 | 언제 |
-| ---- | ---- | ---- |
-| 1 | `-- --target user@host[:port]` | 직접 지정할 때 (포트를 빼면 22) |
-| 2 | **화면이 기다리는 접속** | 화면에서 한 번 시도해 "비밀번호가 없습니다" 가 뜬 뒤 |
-| 3 | `change/config.ts` 의 SSH 프리셋 | 프리셋이 하나뿐일 때 |
-
-2번이 있는 이유 — 화면은 프리셋이 아니라 **직접 입력** 값을 쓸 수도 있고 SSH 프리셋이 여러 개일 수도 있다.
-설정 파일만 보면 엉뚱한 서버에 비밀번호를 넣게 되고, **넣었는데도 "비밀번호가 없습니다" 가 계속 뜬다.**
-그래서 개발 서버가 "지금 어느 접속이 비밀번호를 기다리는지" 를 기억해 두고 알려준다 (대상만, 값은 절대 안 나간다).
-
-키 인증(`auth: 'key'`) 으로 설정된 대상에는 **비밀번호를 받지 않고 멈춘다** —
-넣어봐야 ssh 가 키로만 접속해서 쓰이지 않기 때문이다. 무엇을 바꿔야 하는지 함께 알려준다.
-
-내부적으로는 OpenSSH 의 `SSH_ASKPASS` 를 쓴다 (외부 라이브러리·`sshpass` 없이).
-비밀번호는 자식 프로세스 **환경변수로만** 넘긴다 — 명령줄에 넣으면 `ps` 로 다른 사용자에게 보인다.
-
-`SSH_ASKPASS_REQUIRE=force` 라서 ssh 의 **모든 질문**이 askpass 로 온다. askpass 는 문구를 보지 않고
-비밀번호를 답하므로, 비밀번호가 아닌 질문은 ssh 옵션에서 없앤다 — `StrictHostKeyChecking=yes` 라
-호스트 키 확인(`continue connecting (yes/no)?`)을 **묻지 않고** 바로 실패한다.
-그게 없으면 그 질문에 비밀번호가 답으로 들어가 원인 모를 실패가 된다.
-
-문구를 askpass 에 넘겨 판단하게 만들지 않는 이유도 같다 — 문구에는 원격 서버가 보낸 글자가 섞일 수 있고
-(keyboard-interactive), Windows 에서는 `.cmd` 래퍼를 거치며 cmd.exe 가 그 문구를 다시 해석한다.
+> 접속 재사용(`ControlMaster`)이 있으면 "한 번만 묻기" 가 되지만,
+> **Windows 기본 OpenSSH 는 다중화를 지원하지 않는다** (`getsockname failed: Not a socket`).
 
 #### 그 밖에
 
@@ -304,8 +291,6 @@ change/
 
 scripts/
   ensure-config.mjs         config.ts 가 없으면 example 을 복사해 만든다
-  ssh-login.mjs             SSH 비밀번호를 터미널에서 받아 개발 서버에 넘긴다
-  askpass.mjs/.cmd/.sh      ssh 가 비밀번호를 물을 때 대신 답한다 (SSH_ASKPASS)
 
 server/                     비교 대상을 읽는 개발 서버 API (Vite 플러그인)
   codeRepositoryPlugin.ts   미들웨어 등록 · 라우팅 · 요청에서 위치 읽기
@@ -313,7 +298,6 @@ server/                     비교 대상을 읽는 개발 서버 API (Vite 플�
     types.ts                SnapshotSource 인터페이스 (어디서 읽는지 감춘다)
     localSource.ts          내 PC 폴더 (fs)
     sshSource.ts            SSH 원격 (execFile 로 ssh 실행)
-    passwordStore.ts        SSH 비밀번호 — 이 프로세스 메모리에만 둔다
     sshCommands.ts          명령 조립·출력 파싱 (전부 순수 함수)
     resolve.ts              설정 → 소스 구현
   snapshotRepository.ts     스냅샷·파일 목록 (확장자·용량 필터, 정렬, 캐시)
@@ -350,7 +334,6 @@ npm run build      # 타입 검사 + 프로덕션 빌드
 npm run preview    # 빌드 결과 실행 (API 포함)
 npm test           # 테스트
 npm run typecheck  # 타입 검사만
-npm run ssh-login  # SSH 비밀번호를 터미널에서 입력 (auth: 'password' 일 때)
 ```
 
 dev·build·test·typecheck 는 시작 전에 `change/config.ts` 가 있는지 확인하고,
@@ -361,8 +344,8 @@ dev·build·test·typecheck 는 시작 전에 `change/config.ts` 가 있는지 �
 ## 알아둘 점
 
 - 대상 폴더는 **읽기만** 한다. 쓰기·삭제 API 는 없다 (로컬·SSH 모두).
-- SSH 비밀번호는 **어디에도 저장하지 않는다.** 터미널로 받아 개발 서버 메모리에만 두고,
-  서버를 끄면 사라진다. 브라우저는 비밀번호를 보지 못한다.
+- SSH 비밀번호는 **어디에서도 다루지 않는다.** 받지도, 보관하지도, 대신 답하지도 않는다 —
+  인증은 ssh 가 개인키·ssh-agent 로 처리한다.
 - 패키지 = 날짜 폴더 **바로 아래 디렉터리**. 날짜 폴더에 바로 놓인 파일은 `(루트)` 로 묶인다.
 - 파일 목록·유사도는 서버가 계산해 숫자만 보내고, 코드 본문은 **고른 파일 하나만** 받아온다.
 - 양쪽 합쳐 60,000줄이 넘는 파일은 비교하지 않는다.
