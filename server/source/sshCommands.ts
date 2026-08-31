@@ -122,26 +122,50 @@ export function formatSshCommand(args: string[]): string {
 export const listDirsCommand = (root: string): string => `ls -1F -- ${quoteRemotePath(root)}`
 
 /**
- * 스냅샷 안의 모든 파일을 **크기·체크섬과 함께** 나열한다.
+ * **여러 스냅샷의** 모든 파일을 크기·체크섬과 함께 한 번에 나열한다.
+ *
+ * 예전에는 스냅샷 폴더마다 명령을 한 번씩 보냈다. 날짜 목록 화면은 폴더를 전부 훑어
+ * 파일 수·패키지 수를 세므로, 폴더가 30개면 화면이 뜨기 전에 접속이 30번 일어났다.
+ * 훑을 폴더를 `find` 에 한꺼번에 넘겨 한 번으로 줄인다.
+ *
  * `find -printf` 나 `stat -c`(GNU 전용)·`md5sum`(GNU)·`sha1sum` 은 쓰지 않는다.
  * `cksum` 은 POSIX 필수 유틸이라 Solaris·AIX 에도 있고, 출력이
- * `<CRC> <바이트수> ./<상대경로>` 라 **크기까지 한 줄에** 온다 — 왕복이 늘지 않는다.
+ * `<CRC> <바이트수> ./<스냅샷>/<상대경로>` 라 **크기까지 한 줄에** 온다.
  *
  * 이 값으로 좌우가 같은 파일을 가려내 본문 전송을 건너뛴다. CRC-32 라 이론상 충돌이
  * 가능한데, 크기까지 같아야 "같음"으로 보므로(`parseFileEntries` 가 둘을 한 값으로 묶는다)
  * 실제 오탐 확률은 무시할 수준이다. 더 확실하게 하려면 접속마다 한 번 `command -v
  * sha1sum` 으로 탐지해 있을 때만 그걸 쓰는 길이 있다 — 왕복이 하나 늘어 지금은 안 한다.
  *
- * **먼저 폴더로 들어가 `find .` 을 돌린다.** 절대 경로를 넘기면 find 가 그 경로를 그대로 앞에
- * 붙여 내보내는데, `~/rel` 처럼 원격이 확장하는 루트에서는 돌아온 경로(`/home/deploy/rel/…`)와
- * 우리가 아는 문자열(`~/rel/…`)이 달라 목록이 통째로 걸러진다 — 접속도 되고 폴더도 보이는데
- * 파일만 0개로 보이는, 원인을 찾기 어려운 실패였다. `./` 로 받으면 확장 결과를 몰라도 된다.
+ * **먼저 루트로 들어가 상대 경로로 훑는다.** 절대 경로를 넘기면 find 가 그 경로를 그대로
+ * 앞에 붙여 내보내는데, `~/rel` 처럼 원격이 확장하는 루트에서는 돌아온 경로
+ * (`/home/deploy/rel/…`)와 우리가 아는 문자열(`~/rel/…`)이 달라 목록이 통째로 걸러진다 —
+ * 접속도 되고 폴더도 보이는데 파일만 0개로 보이는, 원인을 찾기 어려운 실패였다.
+ * `./` 로 받으면 확장 결과를 몰라도 된다. 폴더 이름 앞의 `./` 는 `-` 로 시작하는 이름이
+ * find 의 옵션으로 읽히는 것도 함께 막는다.
  *
  * `|| true` 로 **항상 정상 종료**시킨다 — 빈 폴더(find 가 아무것도 못 찾음)와
  * 접속 실패를 종료 코드로 구분해야 하기 때문. 이게 없으면 접속이 끊겨도 "빈 폴더"로 보인다.
  */
-export const listFilesCommand = (snapshotDir: string): string =>
-  `cd ${quoteRemotePath(snapshotDir)} 2>/dev/null && find . -type f -exec cksum {} + 2>/dev/null || true`
+export const listFilesCommand = (root: string, snapshotIds: readonly string[]): string => {
+  const dirs = snapshotIds.map((id) => shellQuote(`./${id}`)).join(' ')
+  return `cd ${quoteRemotePath(root)} 2>/dev/null && find ${dirs} -type f -exec cksum {} + 2>/dev/null || true`
+}
+
+/**
+ * 한 명령에 넣을 스냅샷 폴더 수 상한.
+ * 폴더가 아주 많은 루트에서 원격 `find` 가 한 번에 너무 오래 돌거나
+ * 출력이 `MAX_BUFFER` 를 넘지 않도록 끊는다 (sshSource.ts).
+ */
+const MAX_DIRS_PER_COMMAND = 100
+
+export function chunkSnapshotIds(snapshotIds: readonly string[]): string[][] {
+  const chunks: string[][] = []
+  for (let i = 0; i < snapshotIds.length; i += MAX_DIRS_PER_COMMAND) {
+    chunks.push(snapshotIds.slice(i, i + MAX_DIRS_PER_COMMAND))
+  }
+  return chunks
+}
 
 /**
  * 여러 파일의 본문을 **한 번의 접속으로** 읽는다.
@@ -285,5 +309,28 @@ export function parseFileStream(bytes: Uint8Array, count: number): (Uint8Array |
   }
 
   while (out.length < count) out.push(null)
+  return out
+}
+
+/**
+ * `listFilesCommand` 의 결과를 스냅샷별로 가른다.
+ *
+ * 경로 첫 조각이 스냅샷 이름이다 (`find ./<스냅샷>` 로 훑었으므로 항상 그렇다).
+ * 요청하지 않은 이름과 스냅샷 바로 밑이 아닌 것(루트에 놓인 파일)은 버린다.
+ */
+export function groupBySnapshot<T extends { path: string }>(
+  entries: readonly T[],
+  snapshotIds: readonly string[]
+): Map<string, T[]> {
+  const out = new Map<string, T[]>()
+  for (const id of snapshotIds) out.set(id, [])
+
+  for (const entry of entries) {
+    const gap = entry.path.indexOf('/')
+    if (gap <= 0) continue
+
+    const files = out.get(entry.path.slice(0, gap))
+    if (files) files.push({ ...entry, path: entry.path.slice(gap + 1) })
+  }
   return out
 }

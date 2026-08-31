@@ -3,11 +3,13 @@ import { safeRelativePath } from '../../src/lib/fileTypes.ts'
 import {
   buildSshArgs,
   chunkPaths,
+  chunkSnapshotIds,
   formatSshCommand,
   joinRemote,
   listDirsCommand,
   listFilesCommand,
   parseDirListing,
+  groupBySnapshot,
   parseFileEntries,
   parseFileStream,
   readFilesCommand,
@@ -58,16 +60,20 @@ export class SshSource implements SnapshotSource {
     return parseDirListing(this.decode(out))
   }
 
+  /**
+   * 요청한 스냅샷을 **한 명령으로** 훑는다.
+   * 폴더마다 물어보면 날짜 목록 한 번에 접속이 폴더 수만큼 일어난다.
+   */
   async listFilesIn(snapshotIds: readonly string[]): Promise<Map<string, RawFile[]>> {
     const out = new Map<string, RawFile[]>()
+    const valid = snapshotIds.filter(isValidSnapshotId)
 
-    for (const snapshotId of snapshotIds) {
-      if (!isValidSnapshotId(snapshotId)) continue
-      const dir = joinRemote(this.conn.root, snapshotId)
+    for (const chunk of chunkSnapshotIds(valid)) {
       // 명령이 빈 폴더에서도 정상 종료하므로(`|| true`), 여기서 실패 = 접속 문제다.
       // 삼키면 접속 끊김이 "빈 폴더"로 보여 비교 결과가 조용히 비어 버린다.
-      const listed = await this.run(listFilesCommand(dir))
-      out.set(snapshotId, parseFileEntries(this.decode(listed)))
+      const listed = await this.run(listFilesCommand(this.conn.root, chunk))
+      const grouped = groupBySnapshot(parseFileEntries(this.decode(listed)), chunk)
+      for (const [id, files] of grouped) out.set(id, files)
     }
 
     return out

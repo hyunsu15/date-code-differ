@@ -12,6 +12,8 @@ import {
   quoteRemotePath,
   readFilesCommand,
   chunkPaths,
+  chunkSnapshotIds,
+  groupBySnapshot,
   parseFileStream,
   shellQuote,
   sshOptions,
@@ -138,20 +140,22 @@ test('호스트 키를 자동 수락하지 않는다', () => {
 test('원격 명령에 경로가 인용된 채로 들어간다', () => {
   assert.equal(listDirsCommand('/home/a b'), "ls -1F -- '/home/a b'")
   assert.ok(readFilesCommand('/x', ['y.pc']).includes("cat -- './y.pc'"))
-  assert.ok(listFilesCommand('/x').startsWith("cd '/x' 2>/dev/null && find . -type f"))
+  assert.ok(
+    listFilesCommand('/x', ['d']).startsWith("cd '/x' 2>/dev/null && find './d' -type f")
+  )
 })
 
 test('루트 존재 확인을 위한 별도 명령을 만들지 않는다', () => {
   // 예전엔 `test -d` 로 한 번 더 붙었다. ssh 가 원격 명령의 종료 코드를 그대로 돌려주고
   // 자기 실패는 255 로 알리므로(ssh(1)), 날짜 목록을 읽는 `ls` 하나로 "폴더 없음"과
   // "접속 실패"가 갈린다 — 요청마다 접속이 한 번 줄었다.
-  const commands = [listDirsCommand('/x'), listFilesCommand('/x'), readFilesCommand('/x', ['y.pc'])]
+  const commands = [listDirsCommand('/x'), listFilesCommand('/x', ['d']), readFilesCommand('/x', ['y.pc'])]
   for (const cmd of commands) assert.equal(/test -d/.test(cmd), false, cmd)
 })
 
 test('파일 목록은 GNU 전용 옵션을 쓰지 않는다', () => {
   // -printf(GNU) / stat -c(GNU) 는 AIX·Solaris 에 없다
-  const cmd = listFilesCommand('/x')
+  const cmd = listFilesCommand('/x', ['d'])
   assert.ok(!cmd.includes('-printf'))
   assert.ok(!cmd.includes('-maxdepth'))
   assert.ok(cmd.includes('-exec cksum {} +'))
@@ -288,12 +292,12 @@ test('경로에 공백이 있어도 끊기지 않는다', () => {
 test('~ 루트여도 파일 목록이 비지 않는다', () => {
   // 예전엔 절대 경로로 받아 `~/rel/…` 과 비교했다. 원격은 확장한 `/home/deploy/rel/…` 을
   // 돌려주므로 접속도 되고 폴더도 보이는데 파일만 0개가 됐다 — 원인 찾기 어려운 실패였다.
-  const cmd = listFilesCommand('~/rel/2026-08-01')
-  assert.ok(cmd.startsWith(`cd ~/'rel/2026-08-01' `), cmd)
-  assert.ok(cmd.includes('find . -type f'), cmd)
+  const cmd = listFilesCommand('~/rel', ['2026-08-01'])
+  assert.ok(cmd.startsWith(`cd ~/'rel' `), cmd)
+  assert.ok(cmd.includes(`find './2026-08-01' -type f`), cmd)
   // 원격이 확장한 실제 경로를 몰라도 파싱된다
-  assert.deepEqual(parseFileEntries('1 5 ./ord/a.pc'), [
-    { path: 'ord/a.pc', size: 5, checksum: '1:5' },
+  assert.deepEqual(parseFileEntries('1 5 ./2026-08-01/ord/a.pc'), [
+    { path: '2026-08-01/ord/a.pc', size: 5, checksum: '1:5' },
   ])
 })
 
@@ -301,6 +305,63 @@ test('빈 출력·잡음은 빈 목록', () => {
   for (const stdout of ['', '\n\n', 'find: cannot read directory', '  총 0']) {
     assert.deepEqual(parseFileEntries(stdout), [], JSON.stringify(stdout))
   }
+})
+
+test('여러 스냅샷을 한 명령으로 훑는다 — 폴더 수만큼 접속하지 않는다', () => {
+  const cmd = listFilesCommand('/rel', ['2026-08-01', '2026-09-01'])
+  assert.ok(cmd.includes(`find './2026-08-01' './2026-09-01' -type f`), cmd)
+  assert.equal(cmd.split('find ').length, 2, 'find 는 한 번만 나와야 한다')
+})
+
+test('폴더 이름 앞에도 ./ 를 붙인다 — 이름이 - 로 시작해도 find 옵션이 되지 않는다', () => {
+  assert.ok(listFilesCommand('/rel', ['-delete']).includes(`'./-delete'`))
+})
+
+test('스냅샷이 아주 많으면 명령을 나눈다', () => {
+  const many = Array.from({ length: 250 }, (_, i) => `2026-01-${i}`)
+  const chunks = chunkSnapshotIds(many)
+  assert.ok(chunks.length > 1)
+  assert.deepEqual(chunks.flat(), many)
+  assert.deepEqual(chunkSnapshotIds([]), [])
+})
+
+test('출력을 스냅샷별로 가른다 — 경로 첫 조각이 폴더 이름이다', () => {
+  const entries = parseFileEntries(
+    [
+      '1 10 ./2026-08-01/ord/a.pc',
+      '2 20 ./2026-09-01/pay/b.pc',
+      '3 30 ./2026-09-01/pay/c.pc',
+    ].join('\n')
+  )
+  const grouped = groupBySnapshot(entries, ['2026-08-01', '2026-09-01'])
+
+  assert.deepEqual(
+    grouped.get('2026-08-01')?.map((f) => f.path),
+    ['ord/a.pc']
+  )
+  assert.deepEqual(
+    grouped.get('2026-09-01')?.map((f) => f.path),
+    ['pay/b.pc', 'pay/c.pc']
+  )
+})
+
+test('요청하지 않은 폴더와 루트에 놓인 파일은 버린다', () => {
+  const entries = parseFileEntries(
+    ['1 10 ./README.txt', '2 20 ./other/x.pc', '3 30 ./2026-08-01/a.pc'].join('\n')
+  )
+  const grouped = groupBySnapshot(entries, ['2026-08-01'])
+
+  assert.deepEqual([...grouped.keys()], ['2026-08-01'])
+  assert.deepEqual(
+    grouped.get('2026-08-01')?.map((f) => f.path),
+    ['a.pc']
+  )
+})
+
+test('파일이 없는 스냅샷도 빈 목록으로 자리를 남긴다', () => {
+  const grouped = groupBySnapshot([], ['2026-08-01', '2026-09-01'])
+  assert.deepEqual(grouped.get('2026-08-01'), [])
+  assert.deepEqual(grouped.get('2026-09-01'), [])
 })
 
 /* ---------------- 요청 → 소스 설정 ---------------- */
@@ -386,7 +447,7 @@ test('붙여넣을 수 있어야 한다 — 표시용 명령에 escape 가 생�
   for (const root of roots) {
     const commands = [
       listDirsCommand(root),
-      listFilesCommand(root),
+      listFilesCommand(root, ['2026-08-01', '한글 폴더']),
       readFilesCommand(root, ['ord/a.pc', '한글 파일.pc']),
     ]
     for (const command of commands) {
@@ -405,7 +466,7 @@ test('원격 경로를 감싼 작은따옴표는 그대로 남는다', () => {
 })
 
 test('표시용 명령에도 자격증명이 실리지 않는다', () => {
-  const shown = formatSshCommand(buildSshArgs(CONN, listFilesCommand('/rel/d')))
+  const shown = formatSshCommand(buildSshArgs(CONN, listFilesCommand('/rel', ['d'])))
   assert.ok(!/password|passwd|askpass/i.test(shown), shown)
 })
 
