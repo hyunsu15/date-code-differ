@@ -56,8 +56,9 @@ export function joinRemote(base: string, ...parts: string[]): string {
  * 그 프롬프트는 화면이 아니라 **개발 서버를 띄운 터미널 창**에 뜬다
  * (OpenSSH 는 비밀번호를 stdin 이 아니라 콘솔에서 직접 읽는다).
  *
- * 접속을 재사용하지 않으므로 **원격 명령마다 한 번씩** 묻는다 — 날짜 목록 한 번에 폴더 수만큼,
- * 좌우 비교 한 번에 파일 수의 두 배다. 아무도 답하지 않으면 `COMMAND_TIMEOUT_MS` 만큼
+ * 접속을 재사용하지 않으므로 **원격 명령마다 한 번씩** 묻는다. 그래서 명령 수 자체를 줄여
+ * 뒀다 — 날짜 목록은 폴더가 몇 개든 2회, 좌우 비교는 파일 200개당 2회다
+ * (`listFilesCommand` · `readFilesCommand`). 아무도 답하지 않으면 `COMMAND_TIMEOUT_MS` 만큼
  * 기다렸다가 실패한다 (sshSource.ts). 프롬프트 없이 쓰려면 공개키를 등록해 두면 된다.
  *
  * - `ConnectTimeout` — 접속 불가일 때 오래 매달리지 않게 한다.
