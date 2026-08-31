@@ -2,6 +2,9 @@ node_modules/
 dist/
 dist_next/
 dist_prev/
+backend/
+backend_next/
+backend_prev/
 *.local
 .DS_Store
 

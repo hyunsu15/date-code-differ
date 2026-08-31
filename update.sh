@@ -21,7 +21,7 @@ swap_next_to_current() {
   swapped=1
 }
 
-# swap_next_to_current backend
+swap_next_to_current backend
 swap_next_to_current dist
 
 if [ "$swapped" -eq 0 ]; then

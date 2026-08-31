@@ -9,8 +9,10 @@
     "predev": "node scripts/ensure-config.mjs",
     "dev": "vite",
     "prebuild": "node scripts/ensure-config.mjs",
-    "build": "tsc --noEmit && vite build",
+    "build": "vite build && node scripts/build-server.mjs",
     "preview": "vite preview",
+    "prestart": "node scripts/ensure-config.mjs",
+    "start": "node server/main.ts",
     "pretypecheck": "node scripts/ensure-config.mjs",
     "typecheck": "tsc --noEmit",
     "pretest": "node scripts/ensure-config.mjs",
@@ -29,6 +31,7 @@
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "^0.25.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.7"
   }

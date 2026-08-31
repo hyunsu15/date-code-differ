@@ -16,7 +16,7 @@ import {
 } from '../server/source/sshCommands.ts'
 import { decodeSshMessage, toSourceError } from '../server/source/sshSource.ts'
 import type { SourceError } from '../server/source/types.ts'
-import { readSourceConfig } from '../server/codeRepositoryPlugin.ts'
+import { readSourceConfig } from '../server/api.ts'
 import type { SshSourceConfig } from '../src/types.ts'
 
 /**

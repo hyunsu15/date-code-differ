@@ -21,7 +21,7 @@ swap_prev_to_current() {
   restored=1
 }
 
-# swap_prev_to_current backend
+swap_prev_to_current backend
 swap_prev_to_current dist
 
 if [ "$restored" -eq 0 ]; then
