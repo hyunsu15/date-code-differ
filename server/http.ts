@@ -37,34 +37,6 @@ export function queryFlag(query: URLSearchParams, key: string): boolean {
   return v === '1' || v === 'true' || v === 'on'
 }
 
-/** 요청 본문(JSON)을 읽는다. 비밀번호가 들어오므로 크기를 작게 제한한다 */
-const MAX_BODY_BYTES = 8 * 1024
-
-export function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = []
-    let size = 0
-
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length
-      if (size > MAX_BODY_BYTES) {
-        reject(new Error('요청이 너무 큽니다.'))
-        req.destroy()
-        return
-      }
-      chunks.push(chunk)
-    })
-    req.on('end', () => {
-      try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')))
-      } catch {
-        reject(new Error('JSON 을 읽지 못했습니다.'))
-      }
-    })
-    req.on('error', reject)
-  })
-}
-
 /** 필수 문자열 파라미터 — 없으면 null */
 export function requiredParam(query: URLSearchParams, key: string): string | null {
   const v = query.get(key)

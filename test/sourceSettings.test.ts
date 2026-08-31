@@ -105,7 +105,6 @@ test('타입이 어긋난 값은 빈 문자열·null 로 바로잡는다', () =>
   })
   assert.deepEqual(parseSourceSelection(raw).source, {
     mode: 'ssh',
-    auth: 'key',
     host: '',
     port: null,
     user: '',
@@ -125,7 +124,7 @@ test('모르는 mode 는 로컬로 본다', () => {
 })
 
 test('비밀번호 같은 여분 필드는 읽어들이지 않는다', () => {
-  // 키 인증만 쓴다 — 저장돼 있더라도 설정으로 올라오면 안 된다
+  // 인증은 ssh 몫이다 — 저장돼 있더라도 설정으로 올라오면 안 된다
   const raw = JSON.stringify({
     presetId: null,
     source: { mode: 'ssh', host: 'h', user: 'u', root: '/r', password: 'secret' },

@@ -42,20 +42,17 @@ export const SOURCE_PRESETS: SourcePreset[] = [
       user: 'deploy',
       // 날짜 폴더들의 부모 경로. '~/release' 처럼 홈 기준도 됩니다.
       root: '/home/deploy/release',
-
-      /**
-       * 인증 방식
-       *   'key'      개인키 (기본). 아래 identityFile 또는 ssh 기본 키를 씁니다.
-       *   'password' 비밀번호. 비밀번호는 여기 적지 않습니다 —
-       *              터미널에서 `npm run ssh-login` 으로 넣으면
-       *              개발 서버 메모리에만 보관됩니다.
-       */
-      auth: 'key',
       // ↑↑↑ 여기까지 ↑↑↑
 
       // 비우면(null) ssh 기본 포트 22
       port: null,
-      // 비우면 ssh 기본 키(~/.ssh/id_*). auth: 'password' 면 쓰이지 않습니다.
+      /**
+       * 개인키 파일 경로. 비우면 ssh 기본 키(~/.ssh/id_*)를 씁니다.
+       *
+       * 인증은 ssh 가 알아서 합니다. 키로 안 되면 개발 서버를 띄운 **터미널 창**에
+       * 비밀번호를 물어보는데, 접속을 재사용하지 않아 명령마다 묻습니다.
+       * 한 번만 겪고 끝내려면 `ssh-copy-id` 로 공개키를 등록해 두세요.
+       */
       identityFile: '',
       // 'auto' | 'utf-8' | 'euc-kr'
       encoding: 'auto',

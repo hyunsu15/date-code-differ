@@ -8,7 +8,6 @@
     "postinstall": "node scripts/ensure-config.mjs",
     "predev": "node scripts/ensure-config.mjs",
     "dev": "vite",
-    "ssh-login": "node scripts/ssh-login.mjs",
     "prebuild": "node scripts/ensure-config.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",

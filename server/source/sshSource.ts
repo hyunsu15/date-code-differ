@@ -1,16 +1,8 @@
 import { execFile, type ExecException } from 'node:child_process'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { safeRelativePath } from '../../src/lib/fileTypes.ts'
 import {
-  connectionKey,
-  forgetPassword,
-  getPassword,
-  setPendingConnection,
-} from './passwordStore.ts'
-import {
   buildSshArgs,
-  existsCommand,
+  formatSshCommand,
   joinRemote,
   listDirsCommand,
   listFilesCommand,
@@ -29,21 +21,16 @@ import type { SshSourceConfig } from '../../src/types.ts'
 
 /** 파일 목록이 길어도 잘리지 않도록 넉넉히 잡는다 (기본 1MB 는 금방 넘는다) */
 const MAX_BUFFER = 64 * 1024 * 1024
-/** 원격 명령 하나가 매달릴 수 있는 최대 시간 */
+/**
+ * 원격 명령 하나가 매달릴 수 있는 최대 시간.
+ *
+ * `BatchMode` 를 켜지 않으므로 ssh 가 개발 서버 터미널에 비밀번호를 물어볼 수 있다.
+ * 이 시간은 **그 입력을 기다리는 시간까지 포함**한다 — 아무도 답하지 않으면 여기서 끊긴다.
+ */
 const COMMAND_TIMEOUT_MS = 30_000
 
-/**
- * ssh 가 비밀번호를 물어볼 때 대신 답하는 프로그램.
- *
- * OpenSSH 는 비밀번호를 stdin 이 아니라 제어 터미널에서 읽으므로 파이프로 넣을 수 없다.
- * `SSH_ASKPASS` 는 그걸 우회하는 **OpenSSH 자체 기능**이라 외부 라이브러리가 필요 없다.
- * 인자를 넘길 수 없어 플랫폼별 래퍼 스크립트를 둔다.
- */
-const ASKPASS = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../../scripts',
-  process.platform === 'win32' ? 'askpass.cmd' : 'askpass.sh'
-)
+/** ssh 자신의 실패(접속·인증·호스트 키)를 알리는 종료 코드. 원격 명령의 코드와 겹치지 않는다 (ssh(1)) */
+const SSH_ERROR_EXIT = 255
 
 /** 스냅샷 폴더명으로 쓸 수 있는지 — 경로 구분자·상위 이동을 막는다 */
 const isValidSnapshotId = (id: string): boolean =>
@@ -61,16 +48,11 @@ export class SshSource implements SnapshotSource {
     return `${this.conn.user}@${this.conn.host}${port} ${this.conn.root}`
   }
 
-  async exists(): Promise<boolean> {
-    // 접속 실패는 삼키지 않고 그대로 던진다. "접속이 안 됨"을 "경로가 없음"으로
-    // 안내하면 사용자가 엉뚱한 곳을 고치게 된다.
-    // (명령 자체는 경로가 없어도 정상 종료하므로, 여기서 실패 = 접속·인증 문제다)
-    const out = await this.run(existsCommand(this.conn.root))
-    return this.decode(out).includes('__OK__')
-  }
-
   async listSnapshotDirs(): Promise<string[]> {
-    const out = await this.run(listDirsCommand(this.conn.root))
+    // 루트를 훑는 첫 명령이라 여기서 "폴더 없음"이 드러난다. `ls` 가 원격에서 실패했다면
+    // 루트를 읽지 못한 것이고(없거나 권한이 없거나), ssh 자신의 실패(255)는 접속 문제다 —
+    // run() 이 종료 코드로 둘을 갈라 준다.
+    const out = await this.run(listDirsCommand(this.conn.root), { rootFailureCode: 'ROOT_NOT_FOUND' })
     return parseDirListing(this.decode(out))
   }
 
@@ -80,7 +62,7 @@ export class SshSource implements SnapshotSource {
     // 명령이 빈 폴더에서도 정상 종료하므로(`|| true`), 여기서 실패 = 접속 문제다.
     // 삼키면 접속 끊김이 "빈 폴더"로 보여 비교 결과가 조용히 비어 버린다.
     const out = await this.run(listFilesCommand(dir))
-    return parseFileSizes(this.decode(out), dir)
+    return parseFileSizes(this.decode(out))
   }
 
   async readFile(snapshotId: string, relPath: string): Promise<string | null> {
@@ -90,7 +72,7 @@ export class SshSource implements SnapshotSource {
     if (!safe) return null
 
     const target = joinRemote(this.conn.root, snapshotId, safe)
-    const out = await this.run(readFileCommand(target), { allowFailure: true })
+    const out = await this.run(readFileCommand(target), { allowExitFailure: true })
     return out === null ? null : this.decode(out)
   }
 
@@ -100,48 +82,23 @@ export class SshSource implements SnapshotSource {
   }
 
   /**
-   * 비밀번호 인증에 쓸 환경변수.
-   *
-   * 비밀번호는 **환경변수로만** 넘긴다. 명령줄 인자에 넣으면 `ps` 로 다른 사용자에게 보인다.
-   * `SSH_ASKPASS_REQUIRE=force` 가 있어야 터미널이 붙어 있어도 askpass 를 쓴다.
-   */
-  private askpassEnv(): NodeJS.ProcessEnv | undefined {
-    if (this.conn.auth !== 'password') return undefined
-
-    const password = getPassword(connectionKey(this.conn))
-    if (password === undefined) return undefined
-
-    return {
-      ...process.env,
-      SSH_ASKPASS: ASKPASS,
-      SSH_ASKPASS_REQUIRE: 'force',
-      CODE_DIFF_SSH_PASSWORD: password,
-    }
-  }
-
-  /**
    * 원격 명령 실행.
-   * @param allowFailure 참이면 실패를 null 로 돌려준다 (없는 파일 등 정상 흐름)
+   *
+   * 종료 코드로 **원격의 대답**과 **ssh 자신의 실패**를 가른다. ssh 는 원격 명령의 코드를
+   * 그대로 돌려주고 자기 실패는 255 로 알린다(ssh(1)) — 접속이 끊긴 것을 "파일이 없다"로
+   * 안내하면 사용자가 엉뚱한 곳을 고치게 되므로, 이 구분이 없으면 안 된다.
+   *
+   * @param allowExitFailure 원격 명령이 실패하는 것이 **정상 흐름**이면 참 (없는 파일). null 을 돌려준다
+   * @param rootFailureCode 원격 명령이 실패했을 때 붙일 오류 코드 (루트를 읽는 명령용)
    */
   private run(
     remoteCommand: string,
-    { allowFailure = false }: { allowFailure?: boolean } = {}
+    {
+      allowExitFailure = false,
+      rootFailureCode,
+    }: { allowExitFailure?: boolean; rootFailureCode?: string } = {}
   ): Promise<Buffer | null> {
-    // 비밀번호 인증인데 아직 비밀번호가 없으면, 물어보다 멈추지 말고 바로 알린다
-    if (this.conn.auth === 'password' && !getPassword(connectionKey(this.conn))) {
-      // 화면이 실제로 쓰는 대상을 남긴다 — ssh-login 이 config 대신 이 서버를 기본으로 묻는다
-      setPendingConnection(connectionKey(this.conn))
-      return Promise.reject(
-        new SourceError(
-          `${connectionKey(this.conn)} 의 비밀번호가 없습니다.\n` +
-            '터미널에서 `npm run ssh-login` 을 실행해 입력한 뒤 다시 시도하세요.',
-          'SSH_PASSWORD_REQUIRED'
-        )
-      )
-    }
-
     const args = buildSshArgs(this.conn, remoteCommand)
-    const env = this.askpassEnv()
 
     // 인코딩을 여기서 정하지 않고 바이트로 받는다 — 파일 내용이 EUC-KR 일 수 있어서
     // 문자열 변환은 decode() 에서 설정에 맞춰 한 번만 한다.
@@ -149,66 +106,112 @@ export class SshSource implements SnapshotSource {
       execFile(
         'ssh',
         args,
-        { maxBuffer: MAX_BUFFER, timeout: COMMAND_TIMEOUT_MS, encoding: 'buffer', env },
+        { maxBuffer: MAX_BUFFER, timeout: COMMAND_TIMEOUT_MS, encoding: 'buffer' },
         (error, stdout, stderr) => {
           if (!error) {
             resolve(stdout)
             return
           }
-          if (allowFailure) {
+          const remote = isRemoteExitCode(error.code)
+          if (allowExitFailure && remote) {
             resolve(null)
             return
           }
-          // stderr 는 ssh 자체 메시지라 항상 UTF-8 로 본다
-          reject(toSourceError(error, stderr.toString('utf8'), this.conn))
+          const failure = toSourceError(error, decodeSshMessage(stderr), formatSshCommand(args))
+          reject(
+            rootFailureCode && remote ? new SourceError(failure.message, rootFailureCode) : failure
+          )
         }
       )
     })
   }
 }
 
-/** ssh 실패를 화면에 그대로 보여줄 수 있는 안내로 바꾼다 */
-function toSourceError(
-  error: ExecException,
-  stderr: string,
-  conn: SshSourceConfig
-): SourceError {
-  if (error.code === 'ENOENT') {
-    return new SourceError(
-      'ssh 명령을 찾을 수 없습니다. OpenSSH 클라이언트가 설치돼 있고 PATH 에 있는지 확인하세요.',
-      'SSH_NOT_FOUND'
+/**
+ * 종료 코드가 **원격 명령이 낸 것**인지. ssh 는 원격 명령의 코드를 그대로 돌려주고
+ * 자기 실패는 SSH_ERROR_EXIT 으로 알린다. 숫자가 아니면 ssh 실행 자체가 실패한 것
+ * (`ENOENT`)이거나 시간 초과로 우리가 죽인 것이다 — 둘 다 원격의 대답이 아니다.
+ */
+function isRemoteExitCode(code: ExecException['code']): boolean {
+  return typeof code === 'number' && code !== SSH_ERROR_EXIT
+}
+
+/** OpenSSH 가 ASCII 밖 바이트를 바꿔 놓는 8진 escape 의 연속 (`\276\313` …) */
+const VIS_ESCAPES = /(?:\\[0-3][0-7]{2})+/g
+
+/**
+ * ssh 가 내보낸 오류 문구를 읽을 수 있게 만든다.
+ *
+ * OpenSSH 는 출력하기 전에 ASCII 밖 바이트를 `\nnn`(8진) **리터럴 문자열**로 바꿔 놓는다.
+ * 한국어 윈도우에서는 OS 가 준 CP949 한글 메시지가 통째로 그렇게 escape 되어
+ * `\276\313\267\301…` 으로 보인다 — 인코딩만 바꿔 읽어서는 풀리지 않는다.
+ * 되돌린 다음 디코딩한다 (연속된 escape 가 한 글자를 이루므로 이어붙여 한 번에 옮긴다).
+ */
+export function decodeSshMessage(bytes: Uint8Array): string {
+  return decodeText(bytes, 'auto').replace(VIS_ESCAPES, (run) =>
+    decodeText(
+      Uint8Array.from(run.slice(1).split('\\'), (octal) => parseInt(octal, 8)),
+      'auto'
     )
+  )
+}
+
+/**
+ * ssh 실패를 화면에 그대로 보여줄 수 있는 안내로 바꾼다.
+ *
+ * **실행한 명령을 항상 붙인다.** 원격 명령을 이 도구가 조립하므로, 명령을 안 보여주면
+ * 사용자는 무엇이 실패했는지 모른 채 추측만 하게 된다. 붙여넣어 재현할 수 있어야
+ * 이 도구 문제인지 서버·계정 문제인지 가른다.
+ */
+export function toSourceError(error: ExecException, stderr: string, command: string): SourceError {
+  const { message, code } = explainFailure(error, stderr)
+  return new SourceError(`${message}\n\n실행한 명령:\n${command}`, code)
+}
+
+/** 실패 원인별 안내문. 명령 표시는 toSourceError 가 붙인다 */
+function explainFailure(error: ExecException, stderr: string): { message: string; code: string } {
+  if (error.code === 'ENOENT') {
+    return {
+      code: 'SSH_NOT_FOUND',
+      message:
+        'ssh 명령을 찾을 수 없습니다. OpenSSH 클라이언트가 설치돼 있고 PATH 에 있는지 확인하세요.',
+    }
   }
 
+  // 시간 초과는 stderr 가 비어 있다. error.message 에 argv 가 통째로 들어 있어
+  // 그대로 쓰면 명령이 두 번 찍히므로 여기서 따로 문장을 만든다.
+  if (error.killed) {
+    return {
+      code: 'SSH_TIMEOUT',
+      message:
+        `${COMMAND_TIMEOUT_MS / 1000}초 동안 응답이 없어 끊었습니다.\n` +
+        'ssh 가 개발 서버를 띄운 터미널 창에서 비밀번호를 기다리고 있을 수 있습니다 — 그 창을 확인하세요.',
+    }
+  }
+
+  // stderr 는 ssh 자체 메시지라 항상 UTF-8 로 본다
   const detail = stderr.trim() || error.message
 
   if (/Permission denied|publickey|password|Authentication failed/i.test(detail)) {
-    if (conn.auth === 'password') {
-      // 틀린 비밀번호를 계속 들고 있으면 같은 실패를 반복한다 — 지워서 다시 받게 한다
-      forgetPassword(connectionKey(conn))
-      setPendingConnection(connectionKey(conn))
-      return new SourceError(
-        '비밀번호 인증에 실패했습니다.\n' +
-          '터미널에서 `npm run ssh-login` 으로 다시 입력하세요.\n\n' +
-          detail,
-        'SSH_PASSWORD_REJECTED'
-      )
+    return {
+      code: 'SSH_AUTH_FAILED',
+      message:
+        '인증에 실패했습니다.\n' +
+        '이 도구는 비밀번호를 묻지 않습니다 — ssh 가 평소 쓰는 방식(개인키 · ssh-agent · ~/.ssh/config)으로 붙습니다.\n' +
+        '아래 명령을 터미널에 그대로 붙여넣어 아무것도 묻지 않고 들어가는지 먼저 확인하세요.\n' +
+        '(비밀번호로만 들어가는 서버라면 `ssh-copy-id` 로 공개키를 등록해 두면 됩니다)\n\n' +
+        detail,
     }
-    return new SourceError(
-      `키 인증에 실패했습니다. 개인키 경로와 원격 계정을 확인하세요.\n` +
-        `비밀번호로 접속해야 한다면 프리셋의 auth 를 'password' 로 바꾸세요.\n\n${detail}`,
-      'SSH_AUTH_FAILED'
-    )
   }
   if (/Host key verification failed|known_hosts/i.test(detail)) {
-    return new SourceError(
-      `호스트 키가 등록돼 있지 않습니다. 터미널에서 한 번 접속해 known_hosts 에 추가한 뒤 다시 시도하세요.\n\n${detail}`,
-      'SSH_HOST_KEY'
-    )
+    return {
+      code: 'SSH_HOST_KEY',
+      message: `호스트 키가 등록돼 있지 않습니다. 터미널에서 한 번 접속해 known_hosts 에 추가한 뒤 다시 시도하세요.\n\n${detail}`,
+    }
   }
   if (/Could not resolve hostname|Connection refused|Connection timed out|No route to host/i.test(detail)) {
-    return new SourceError(`원격 서버에 접속하지 못했습니다.\n\n${detail}`, 'SSH_UNREACHABLE')
+    return { code: 'SSH_UNREACHABLE', message: `원격 서버에 접속하지 못했습니다.\n\n${detail}` }
   }
 
-  return new SourceError(`원격 명령이 실패했습니다.\n\n${detail}`, 'SSH_FAILED')
+  return { code: 'SSH_FAILED', message: `원격 명령이 실패했습니다.\n\n${detail}` }
 }

@@ -20,22 +20,19 @@ export class LocalSource implements SnapshotSource {
     return this.root
   }
 
-  async exists(): Promise<boolean> {
-    try {
-      return (await fs.stat(this.root)).isDirectory()
-    } catch {
-      return false
-    }
-  }
-
   async listSnapshotDirs(): Promise<string[]> {
     let entries
     try {
       entries = await fs.readdir(this.root, { withFileTypes: true })
     } catch (e) {
+      // 없는 경로·폴더가 아닌 경로는 "폴더 없음"으로 갈라 알린다 — 설정을 고치면 되는 문제라
+      // 권한·디스크 오류와 같은 칸에 두면 사용자가 엉뚱한 곳을 뒤진다
+      const code = (e as NodeJS.ErrnoException).code
+      const notFound = code === 'ENOENT' || code === 'ENOTDIR'
       throw new SourceError(
-        `폴더를 읽지 못했습니다: ${this.root}\n${(e as Error).message}`,
-        'LOCAL_READ_FAILED'
+        `${notFound ? '비교할 폴더를 찾을 수 없습니다' : '폴더를 읽지 못했습니다'}: ${this.root}\n` +
+          (e as Error).message,
+        notFound ? 'ROOT_NOT_FOUND' : 'LOCAL_READ_FAILED'
       )
     }
     // 심볼릭 링크는 루트 밖을 가리킬 수 있어 따라가지 않는다

@@ -13,10 +13,7 @@ export interface SnapshotSource {
   /** 화면·로그에 보여줄 위치 표시 (예: `C:\rel` 또는 `user@host:/rel`) */
   describe(): string
 
-  /** 루트가 실제로 존재하는지 */
-  exists(): Promise<boolean>
-
-  /** 루트 바로 아래 디렉터리 이름 목록 (= 날짜 스냅샷 후보) */
+  /** 루트 바로 아래 디렉터리 이름 목록 (= 날짜 스냅샷 후보). 루트가 없으면 ROOT_NOT_FOUND */
   listSnapshotDirs(): Promise<string[]>
 
   /** 한 스냅샷 안의 모든 파일 (확장자·용량 필터 전) */

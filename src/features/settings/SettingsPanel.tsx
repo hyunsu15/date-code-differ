@@ -215,33 +215,6 @@ export default function SettingsPanel({ value, onApply, onClose }: SettingsPanel
               </label>
 
               <label className="field">
-                <span>인증 방식</span>
-                <div className="btn-group">
-                  <button
-                    type="button"
-                    className={`btn sm ${draft.ssh.auth === 'key' ? 'active' : ''}`}
-                    onClick={() => setSsh('auth', 'key')}
-                  >
-                    개인키
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn sm ${draft.ssh.auth === 'password' ? 'active' : ''}`}
-                    onClick={() => setSsh('auth', 'password')}
-                  >
-                    비밀번호
-                  </button>
-                </div>
-                {draft.ssh.auth === 'password' && (
-                  <small>
-                    비밀번호는 <b>여기에 넣지 않습니다.</b> 적용한 뒤 터미널에서{' '}
-                    <code>npm run ssh-login</code> 을 실행해 입력하세요. 입력한 값은 개발 서버
-                    메모리에만 남고 브라우저·저장소에는 저장되지 않습니다.
-                  </small>
-                )}
-              </label>
-
-              <label className="field" style={{ opacity: draft.ssh.auth === 'key' ? 1 : 0.45 }}>
                 <span>개인키 파일</span>
                 <input
                   type="text"
@@ -249,13 +222,8 @@ export default function SettingsPanel({ value, onApply, onClose }: SettingsPanel
                   onChange={(e) => setSsh('identityFile', e.target.value)}
                   placeholder="비우면 ssh 기본 키 (~/.ssh/id_rsa 등)"
                   spellCheck={false}
-                  disabled={draft.ssh.auth !== 'key'}
                 />
-                <small>
-                  {draft.ssh.auth === 'key'
-                    ? '비우면 평소 쓰는 기본 키를 씁니다.'
-                    : '비밀번호 인증에서는 쓰이지 않습니다.'}
-                </small>
+                <small>비우면 평소 쓰는 기본 키를 씁니다 (ssh-agent · ~/.ssh/config 도 그대로 따릅니다).</small>
               </label>
 
               <label className="field">
@@ -276,6 +244,11 @@ export default function SettingsPanel({ value, onApply, onClose }: SettingsPanel
                 <br />
                 처음 접속하는 서버라면 터미널에서 한 번 <code>ssh</code> 로 접속해 호스트 키를
                 등록해 두세요.
+                <br />
+                <b>비밀번호는 이 화면이 아니라 터미널에 묻습니다.</b> 키로 접속되지 않는 서버라면{' '}
+                <code>npm run dev</code> 를 띄운 터미널 창에 프롬프트가 뜹니다 — 접속을 재사용하지
+                않으므로 <b>명령마다 한 번씩</b> 묻습니다. 한 번만 겪고 끝내려면{' '}
+                <code>ssh-copy-id</code> 로 공개키를 등록해 두세요.
               </p>
             </>
           )}

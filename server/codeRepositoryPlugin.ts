@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Connect, Plugin } from 'vite'
-import { parseUrl, queryFlag, readJsonBody, requiredParam, sendError, sendJson } from './http.ts'
+import { parseUrl, queryFlag, requiredParam, sendError, sendJson } from './http.ts'
 import {
   clearCache,
   listSnapshots,
@@ -9,13 +9,6 @@ import {
 } from './snapshotRepository.ts'
 import { clearComparisonCache, compareSnapshots, readFilePair } from './comparisonService.ts'
 import { createSource, sourceKey } from './source/resolve.ts'
-import {
-  forgetAllPasswords,
-  normalizeConnectionTarget,
-  pendingConnection,
-  registeredConnections,
-  setPassword,
-} from './source/passwordStore.ts'
 import { SourceError, type SnapshotSource } from './source/types.ts'
 import type {
   DiffOptions,
@@ -34,17 +27,8 @@ import type {
  *   GET /api/v1/comparisons?left=&right=[&무시옵션][&소스 파라미터]
  *   GET /api/v1/comparisons/files?left=&right=&path=[&소스 파라미터]
  *
- * 대상 폴더를 수정하는 동작은 없다. 유일한 POST 는 아래 하나뿐이고,
- * 이것도 원격을 건드리지 않고 **이 프로세스 메모리에** 비밀번호를 담아둘 뿐이다.
- *
- *   POST /api/v1/ssh-credentials   { target, password }
- *
- * 짝이 되는 조회는 **대상만** 알려준다 (비밀번호 값은 어떤 경로로도 나가지 않는다).
- *
- *   GET  /api/v1/ssh-credentials   → { pending, registered }
- *
- * 이 두 엔드포인트는 터미널의 `npm run ssh-login` 만 호출한다 —
- * 브라우저는 비밀번호를 다루지 않는다.
+ * **GET 뿐이다.** 대상 폴더를 수정하는 동작도, 자격증명을 받는 동작도 없다 —
+ * SSH 인증은 ssh 가 알아서 한다(개인키·ssh-agent·~/.ssh/config).
  */
 
 export const API_BASE = '/api/v1'
@@ -71,7 +55,6 @@ export function readSourceConfig(query: URLSearchParams): SourceConfig {
   const port = Number(query.get('port'))
   return {
     mode: 'ssh',
-    auth: query.get('auth') === 'password' ? 'password' : 'key',
     host: query.get('host') ?? '',
     port: Number.isFinite(port) && port > 0 ? port : null,
     user: query.get('user') ?? '',
@@ -95,20 +78,8 @@ function createHandler(cfg: RepositoryConfig, projectRoot: string): Connect.Next
   return (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction): void => {
     const { pathname, query } = parseUrl(req)
 
-    // 터미널에서 받은 비밀번호를 이 프로세스 메모리에 담는다 (유일한 POST)
-    if (req.method === 'POST' && pathname === '/ssh-credentials') {
-      void receiveCredentials(req, res)
-      return
-    }
     if (req.method !== 'GET') {
       next()
-      return
-    }
-
-    // 어느 접속이 비밀번호를 기다리는지 — `npm run ssh-login` 전용.
-    // **대상만** 알려준다. 비밀번호 값은 어떤 경로로도 나가지 않는다.
-    if (pathname === '/ssh-credentials') {
-      sendJson(res, 200, { pending: pendingConnection(), registered: registeredConnections() })
       return
     }
 
@@ -133,22 +104,9 @@ function createHandler(cfg: RepositoryConfig, projectRoot: string): Connect.Next
           if (queryFlag(query, 'refresh')) {
             clearCache()
             clearComparisonCache()
-            // 새로고침은 "처음부터 다시" 라는 뜻이므로 비밀번호도 비운다
-            if (queryFlag(query, 'forgetPassword')) forgetAllPasswords()
           }
           const resolved = resolve()
           if (!resolved) return
-
-          if (!(await resolved.source.exists())) {
-            sendError(
-              res,
-              404,
-              'ROOT_NOT_FOUND',
-              `비교할 폴더를 찾을 수 없습니다: ${resolved.source.describe()}\n` +
-                'change/config.ts 의 프리셋 또는 화면의 ⚙ 위치 설정을 확인하세요.'
-            )
-            return
-          }
 
           // 폴더 이름 접두사(prod/test/dev …). 없으면 거르지 않는다
           const body: SnapshotListResponse = {
@@ -207,44 +165,21 @@ function createHandler(cfg: RepositoryConfig, projectRoot: string): Connect.Next
         next()
       } catch (e) {
         if (e instanceof SourceError) {
-          sendError(res, 502, e.code, e.message)
+          // 루트를 못 찾은 것은 설정 문제라 404 로 갈라 안내한다 (그 밖은 접속·읽기 실패)
+          const notFound = e.code === 'ROOT_NOT_FOUND'
+          sendError(
+            res,
+            notFound ? 404 : 502,
+            e.code,
+            notFound
+              ? `${e.message}\n\nchange/config.ts 의 프리셋 또는 화면의 ⚙ 위치 설정을 확인하세요.`
+              : e.message
+          )
           return
         }
         sendError(res, 500, 'INTERNAL', (e as Error).message)
       }
     })()
-  }
-}
-
-/**
- * `npm run ssh-login` 이 보낸 비밀번호를 받는다.
- *
- * 메모리에만 담고 어디에도 기록하지 않는다. 로그에도 값을 남기지 않는다.
- * 로컬 개발 서버 전용이므로 접속 대상(`target`) 형식만 확인한다.
- */
-async function receiveCredentials(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  try {
-    const body = await readJsonBody(req)
-    const value = (body ?? {}) as Record<string, unknown>
-
-    const raw = typeof value.target === 'string' ? value.target : ''
-    const password = typeof value.password === 'string' ? value.password : ''
-
-    // 포트를 생략하면 22 로 채워 화면이 찾는 키와 같은 형태로 맞춘다
-    const target = normalizeConnectionTarget(raw)
-    if (target === null) {
-      sendError(res, 400, 'BAD_TARGET', 'target 은 user@host[:port] 형식이어야 합니다.')
-      return
-    }
-    if (!password) {
-      sendError(res, 400, 'EMPTY_PASSWORD', '비밀번호가 비어 있습니다.')
-      return
-    }
-
-    setPassword(target, password)
-    sendJson(res, 200, { ok: true, target })
-  } catch (e) {
-    sendError(res, 400, 'BAD_REQUEST', (e as Error).message)
   }
 }
 

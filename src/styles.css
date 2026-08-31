@@ -781,6 +781,8 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 }
 .empty h2 { margin: 0; font-size: 20px; }
 .empty p { margin: 0; color: var(--muted); max-width: 620px; line-height: 1.7; }
+/* 오류 안내는 줄바꿈(실행한 ssh 명령 등)을 접지 않고 그대로 보여준다 */
+.empty p.error-detail { white-space: pre-wrap; text-align: left; overflow-wrap: anywhere; }
 
 /* ================================================================
    Prism 토큰

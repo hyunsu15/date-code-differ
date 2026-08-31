@@ -2,7 +2,7 @@ import type { SshSourceConfig } from '../../src/types.ts'
 
 /**
  * SSH 명령 조립 — 전부 순수 함수라 실제 접속 없이 테스트한다.
- * (`RealSshClient.ts` 의 방식을 따랐다: 라이브러리 없이 `execFile` 로 `ssh` 실행)
+ * 라이브러리 없이 `execFile` 로 OpenSSH 클라이언트를 그대로 실행한다.
  *
  * 로컬 셸은 `execFile` 이 인자 배열을 그대로 넘겨 보간하지 않는다.
  * 반면 마지막 인자(원격 명령)는 **원격 셸이 해석**하므로 경로를 반드시 quote 해야 한다.
@@ -20,19 +20,23 @@ const TILDE_PREFIX = /^(~[A-Za-z0-9._-]*)(\/.*)?$/
 /**
  * 원격 경로를 주입에 안전하게 quote 하되, **선행 홈 경로(~)는 원격에서 확장되도록** 따옴표 밖에 둔다.
  * 작은따옴표 안에서는 셸이 `~` 를 확장하지 않아 `'~/rel'` 이 리터럴 경로가 되어 버린다.
- * 내 홈은 `"$HOME"` 으로 바꾼다 — 틸드는 인용에 인접하면 셸마다 확장 규칙이 다르지만
- * `"$HOME"` 은 sh·bash·ksh·zsh·csh 모두 큰따옴표 안에서 확장된다.
- * `~user` 는 `$HOME` 으로 대체할 수 없어 틸드 노출을 유지한다(안전 문자셋 한정).
+ *
+ * 뒤쪽만 인용한 `~/'rel'` 로 둔다. POSIX 는 틸드 접두사가 **인용되지 않은 채** 첫 `/` 앞에
+ * 있으면 확장한다고 정해 두었고, sh·bash·dash 에서 모두 확장되는 것을 확인했다.
+ *
+ * `"$HOME"` 을 쓰지 않는다. 오류 안내에 붙는 명령은 **터미널에 그대로 붙여넣을 수 있어야**
+ * 하는데, 큰따옴표와 `$` 가 들어가면 감쌀 때 역슬래시 escape 가 생긴다. 윈도우 PowerShell 은
+ * 역슬래시를 escape 로 보지 않고 `$HOME` 을 자기가 먼저 풀어 버려서, 붙여넣으면 따옴표가
+ * 깨진 채 원격으로 넘어가고 원격 셸이 `unexpected EOF` 로 죽는다.
  */
 export function quoteRemotePath(remotePath: string): string {
   const match = TILDE_PREFIX.exec(remotePath)
   if (!match) return shellQuote(remotePath)
 
   const [, tildePrefix, rest] = match
-  const homePrefix = tildePrefix === '~' ? '"$HOME"' : tildePrefix
-  if (rest === undefined) return homePrefix
-  // 첫 '/' 는 확장 세그먼트를 끝내려고 따옴표 밖에 두고, 그 뒤 실제 경로만 quote 한다
-  return `${homePrefix}/${shellQuote(rest.slice(1))}`
+  if (rest === undefined) return tildePrefix
+  // 첫 '/' 는 틸드 접두사를 끝내려고 따옴표 밖에 두고, 그 뒤 실제 경로만 quote 한다
+  return `${tildePrefix}/${shellQuote(rest.slice(1))}`
 }
 
 /** 원격 경로 두 조각을 잇는다 (`/` 중복·누락 정리) */
@@ -45,50 +49,30 @@ export function joinRemote(base: string, ...parts: string[]): string {
 /**
  * ssh 공통 옵션.
  *
+ * **인증은 ssh 에 맡긴다.** 이 도구는 비밀번호를 받지도, 보관하지도, 대신 답하지도 않는다 —
+ * 개인키 · ssh-agent · `~/.ssh/config` 로 붙고, 그것으로 안 되면 **ssh 가 직접 물어본다.**
+ *
+ * `BatchMode` 를 켜지 않는다. 그래서 키가 없는 서버에서는 비밀번호를 물어볼 수 있는데,
+ * 그 프롬프트는 화면이 아니라 **개발 서버를 띄운 터미널 창**에 뜬다
+ * (OpenSSH 는 비밀번호를 stdin 이 아니라 콘솔에서 직접 읽는다).
+ *
+ * 접속을 재사용하지 않으므로 **원격 명령마다 한 번씩** 묻는다 — 날짜 목록 한 번에 폴더 수만큼,
+ * 좌우 비교 한 번에 파일 수의 두 배다. 아무도 답하지 않으면 `COMMAND_TIMEOUT_MS` 만큼
+ * 기다렸다가 실패한다 (sshSource.ts). 프롬프트 없이 쓰려면 공개키를 등록해 두면 된다.
+ *
  * - `ConnectTimeout` — 접속 불가일 때 오래 매달리지 않게 한다.
- * - `StrictHostKeyChecking=yes` — 호스트 키를 자동 수락하지 않고, 묻지도 않는다.
+ *   (접속 단계에만 걸리므로 비밀번호 입력 시간을 잘라내지 않는다)
+ * - `StrictHostKeyChecking=yes` — 호스트 키를 자동 수락하지 않는다.
  *   처음 접속하는 서버는 터미널에서 한 번 `ssh` 로 접속해 known_hosts 에 등록해야 한다
  *   (자동 수락은 중간자 공격을 못 막는다).
- *   **묻지 않는 것까지 중요하다** — 비밀번호 인증에서는 ssh 의 모든 질문이 askpass 로 가는데,
- *   askpass 는 문구를 보지 않고 비밀번호를 답한다. 호스트 키 확인이 뜨면 그 질문에
- *   비밀번호가 답으로 들어가고, 접속은 원인 모를 실패로 끝난다.
- *
- * 인증 방식에 따라 갈린다.
- *
- * **키 인증** — `BatchMode=yes`. 무엇도 묻지 않고 실패하면 바로 끝난다.
- *   이게 없으면 프롬프트가 떠서 개발 서버가 통째로 멈춘다.
- *
- * **비밀번호 인증** — `BatchMode` 를 켤 수 없다(켜면 askpass 도 막힌다).
- *   대신 이렇게 막아 둔다.
- *   · `PubkeyAuthentication=no` — 키를 먼저 시도하다 키 암호를 묻는 일을 없앤다
- *   · `NumberOfPasswordPrompts=1` — 틀리면 3번 재시도하지 않고 바로 실패한다
- *   실제 비밀번호는 `SSH_ASKPASS` 로 전달한다 (sshSource.ts 참고).
  */
 export function sshOptions(conn: SshSourceConfig, connectTimeoutSec = 10): string[] {
   const options: string[] = [
     '-o',
     `ConnectTimeout=${connectTimeoutSec}`,
-    // 호스트 키를 자동 수락하지도, **물어보지도** 않는다.
-    // 물어보게 두면 비밀번호 인증에서 그 질문이 askpass 로 가고,
-    // askpass 는 비밀번호를 답으로 내놓는다 (yes/no 질문에 비밀번호가 들어간다).
     '-o',
     'StrictHostKeyChecking=yes',
   ]
-
-  if (conn.auth === 'password') {
-    options.push(
-      '-o',
-      'BatchMode=no',
-      '-o',
-      'PubkeyAuthentication=no',
-      '-o',
-      'PreferredAuthentications=password,keyboard-interactive',
-      '-o',
-      'NumberOfPasswordPrompts=1'
-    )
-  } else {
-    options.push('-o', 'BatchMode=yes')
-  }
 
   if (conn.port) options.push('-p', String(conn.port))
   if (conn.identityFile) options.push('-i', conn.identityFile)
@@ -104,6 +88,29 @@ export function buildSshArgs(
   return [...sshOptions(conn, connectTimeoutSec), `${conn.user}@${conn.host}`, remoteCommand]
 }
 
+/** 따옴표 없이 셸에 그대로 둬도 되는 문자만. 이 밖이면 감싼다 */
+const SAFE_ARG = /^[A-Za-z0-9@%_+=:,./-]+$/
+
+/**
+ * argv 한 조각을 사람이 복사해 실행할 수 있는 형태로 만든다.
+ * 큰따옴표로 감싸고 로컬 셸이 해석하는 것들(`"` `\` `$` 백틱)만 escape 한다 —
+ * 안쪽 작은따옴표(원격 경로 인용)는 그대로 살아 있어야 원격에서 같은 뜻이 된다.
+ */
+function displayArg(value: string): string {
+  return SAFE_ARG.test(value) ? value : `"${value.replace(/(["\\$`])/g, '\\$1')}"`
+}
+
+/**
+ * **실제로 실행한 ssh 명령**을 한 줄로 만든다 (오류 안내에 붙이는 용도).
+ *
+ * 원격 명령은 이 파일이 조립하므로 화면만 봐서는 무엇이 실행됐는지 알 수 없다.
+ * 터미널에 그대로 붙여넣어 재현할 수 있어야 이 도구 문제인지 서버·계정 문제인지 갈린다.
+ * (비밀번호는 argv 에 싣지 않으므로 이 문자열로 자격증명이 새어 나가지 않는다)
+ */
+export function formatSshCommand(args: string[]): string {
+  return ['ssh', ...args].map(displayArg).join(' ')
+}
+
 /* ------------------------------------------------------------------ */
 /* 원격에서 실행할 명령                                                 */
 /* ------------------------------------------------------------------ */
@@ -117,25 +124,23 @@ export const listDirsCommand = (root: string): string => `ls -1F -- ${quoteRemot
 /**
  * 스냅샷 안의 모든 파일을 **크기와 함께** 나열한다.
  * `find -printf` 나 `stat -c` 는 GNU 전용이라, POSIX 조합인 `find ... -exec wc -c {} +` 를 쓴다.
- * 출력은 `<바이트수> <절대경로>` 이고 배치마다 `total` 줄이 섞인다 (호출부에서 걸러낸다).
+ * 출력은 `<바이트수> ./<상대경로>` 이고 배치마다 `total` 줄이 섞인다 (호출부에서 걸러낸다).
+ *
+ * **먼저 폴더로 들어가 `find .` 을 돌린다.** 절대 경로를 넘기면 find 가 그 경로를 그대로 앞에
+ * 붙여 내보내는데, `~/rel` 처럼 원격이 확장하는 루트에서는 돌아온 경로(`/home/deploy/rel/…`)와
+ * 우리가 아는 문자열(`~/rel/…`)이 달라 목록이 통째로 걸러진다 — 접속도 되고 폴더도 보이는데
+ * 파일만 0개로 보이는, 원인을 찾기 어려운 실패였다. `./` 로 받으면 확장 결과를 몰라도 된다.
  *
  * `|| true` 로 **항상 정상 종료**시킨다 — 빈 폴더(find 가 아무것도 못 찾음)와
  * 접속 실패를 종료 코드로 구분해야 하기 때문. 이게 없으면 접속이 끊겨도 "빈 폴더"로 보인다.
  */
 export const listFilesCommand = (snapshotDir: string): string =>
-  `find ${quoteRemotePath(snapshotDir)} -type f -exec wc -c {} + 2>/dev/null || true`
+  `cd ${quoteRemotePath(snapshotDir)} 2>/dev/null && find . -type f -exec wc -c {} + 2>/dev/null || true`
 
 /** 파일 본문 — 내려받지 않고 표준출력으로 읽는다 */
 export const readFileCommand = (filePath: string): string => `cat -- ${quoteRemotePath(filePath)}`
 
-/**
- * 루트가 디렉터리인지 확인.
- * 결과를 **종료 코드가 아니라 표준출력으로** 알린다 — 명령은 항상 정상 종료해야
- * "접속 실패"와 "경로 없음"을 구분할 수 있다 (`test -d X && echo` 는 경로가 없으면 exit 1 이라
- * 접속 실패와 똑같이 보인다).
- */
-export const existsCommand = (root: string): string =>
-  `if test -d ${quoteRemotePath(root)}; then echo __OK__; else echo __NO__; fi`
+
 
 /* ------------------------------------------------------------------ */
 /* 출력 파싱                                                            */
@@ -158,12 +163,12 @@ export function parseDirListing(stdout: string): string[] {
 /**
  * `wc -c` 출력을 상대 경로 + 크기로 바꾼다.
  *
- * 각 줄은 `<바이트수> <절대경로>` 이고, 파일이 여러 개면 `<합계> total` 줄이 섞인다.
- * 경로가 `snapshotDir` 로 시작하는 줄만 인정해 `total` 줄과 잡음을 함께 걸러낸다.
- * (경로에 공백이 있어도 첫 공백 뒤 전부를 경로로 보므로 안전하다)
+ * 각 줄은 `<바이트수> ./<상대경로>` 이고, 파일이 여러 개면 `<합계> total` 줄이 섞인다.
+ * `./` 로 시작하는 줄만 인정해 `total` 줄과 잡음을 함께 걸러낸다
+ * (`listFilesCommand` 가 폴더 안으로 들어가 `find .` 을 돌리므로 항상 `./` 로 온다).
+ * 경로에 공백이 있어도 첫 공백 뒤 전부를 경로로 보므로 안전하다.
  */
-export function parseFileSizes(stdout: string, snapshotDir: string): { path: string; size: number }[] {
-  const prefix = `${snapshotDir.replace(/\/+$/, '')}/`
+export function parseFileSizes(stdout: string): { path: string; size: number }[] {
   const out: { path: string; size: number }[] = []
 
   for (const raw of stdout.split('\n')) {
@@ -176,10 +181,10 @@ export function parseFileSizes(stdout: string, snapshotDir: string): { path: str
     const size = Number(line.slice(0, gap))
     if (!Number.isFinite(size)) continue
 
-    const absolute = line.slice(gap + 1).trimStart()
-    if (!absolute.startsWith(prefix)) continue // `total` 줄과 범위 밖 경로를 걸러낸다
+    const found = line.slice(gap + 1).trimStart()
+    if (!found.startsWith('./')) continue // `total` 줄과 잡음을 걸러낸다
 
-    const relative = absolute.slice(prefix.length)
+    const relative = found.slice(2)
     if (relative) out.push({ path: relative, size })
   }
   return out

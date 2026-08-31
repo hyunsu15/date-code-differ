@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
-import { ApiRequestError, fetchComparison, fetchFileContent, fetchSnapshots } from './api/client.ts'
+import { fetchComparison, fetchFileContent, fetchSnapshots } from './api/client.ts'
 import CodeSearchBar from './features/diff/CodeSearchBar.tsx'
 import DiffNav from './features/diff/DiffNav.tsx'
 import DiffViewer from './features/diff/DiffViewer.tsx'
@@ -93,8 +93,6 @@ export default function App() {
   const [selection, setSelection] = useState(EMPTY_SELECTION)
   const { left, right } = selection
   const [loadError, setLoadError] = useState<string | null>(null)
-  /** 비밀번호가 없거나 틀려서 막힌 상태 — 안내 문구가 달라진다 */
-  const [needsPassword, setNeedsPassword] = useState(false)
   const [loadingSnapshots, setLoadingSnapshots] = useState(true)
 
   /* ---------------- 비교 결과 ---------------- */
@@ -170,7 +168,6 @@ export default function App() {
     async (config: SourceConfig, folderPrefix: string, refresh: boolean): Promise<void> => {
       setLoadingSnapshots(true)
       setLoadError(null)
-      setNeedsPassword(false)
       try {
         const res = await fetchSnapshots(config, folderPrefix, refresh)
         setLoaded({ source: config, root: res.root, items: res.items })
@@ -183,10 +180,6 @@ export default function App() {
         setSelection(EMPTY_SELECTION)
         setComparison(null)
         setLoadError((e as Error).message)
-        setNeedsPassword(
-          e instanceof ApiRequestError &&
-            (e.code === 'SSH_PASSWORD_REQUIRED' || e.code === 'SSH_PASSWORD_REJECTED')
-        )
       } finally {
         setLoadingSnapshots(false)
       }
@@ -553,18 +546,6 @@ export default function App() {
       {loadError && (
         <div className="banner error">
           <b>불러오지 못했습니다.</b> {loadError}
-          {needsPassword && (
-            // 무엇을 해야 하는지는 서버 메시지가 이미 말한다 — 여기서는 버튼만 준다
-            <div className="banner-action">
-              <button
-                type="button"
-                className="btn sm"
-                onClick={() => void loadSnapshots(source, prefix, false)}
-              >
-                비밀번호를 넣었습니다 · 다시 시도
-              </button>
-            </div>
-          )}
         </div>
       )}
       {tooFewSnapshots && (
@@ -860,7 +841,7 @@ export default function App() {
                 {contentError ? (
                   <>
                     <h2>파일을 읽지 못했습니다</h2>
-                    <p>{contentError}</p>
+                    <p className="error-detail">{contentError}</p>
                   </>
                 ) : (
                   <h2>파일을 읽는 중입니다</h2>

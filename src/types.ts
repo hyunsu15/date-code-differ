@@ -34,20 +34,15 @@ export interface LocalSourceConfig extends SourceBase {
   root: string
 }
 
-/** SSH 인증 방식 */
-export type SshAuthMode = 'key' | 'password'
-
 /**
  * SSH 원격 설정.
  *
- * `auth: 'key'` — 개인키 인증. `BatchMode=yes` 로 접속해 아무것도 묻지 않는다.
- * `auth: 'password'` — 비밀번호 인증. **비밀번호는 이 설정에 담기지 않는다.**
- *   터미널에서 `npm run ssh-login` 으로 넣고, 개발 서버 메모리에만 보관한다.
+ * **인증은 ssh 에 맡긴다.** 비밀번호는 받지도 보관하지도 않는다 —
+ * 개인키 · ssh-agent · `~/.ssh/config` 로 붙고, 그것으로 안 되면 ssh 가
+ * **개발 서버 터미널에** 직접 물어본다.
  */
 export interface SshSourceConfig extends SourceBase {
   mode: 'ssh'
-  /** 인증 방식. 비우면 키 인증 */
-  auth: SshAuthMode
   host: string
   /** 비우면 ssh 기본값(22) */
   port: number | null
@@ -68,7 +63,6 @@ export const DEFAULT_LOCAL_SOURCE: LocalSourceConfig = {
 
 export const DEFAULT_SSH_SOURCE: SshSourceConfig = {
   mode: 'ssh',
-  auth: 'key',
   host: '',
   port: null,
   user: '',

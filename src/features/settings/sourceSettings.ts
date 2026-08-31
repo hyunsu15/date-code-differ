@@ -15,7 +15,8 @@ import {
  *  2. 화면에서 직접 고친 **직접 입력** — 이 브라우저의 localStorage 에만 남는다
  *
  * 어느 쪽이든 서버는 상태를 두지 않고 **요청마다** 쿼리로 받는다.
- * 비밀번호는 저장하지도, 보내지도 않는다 — SSH 는 키 인증만 쓴다.
+ * 비밀번호는 저장하지도, 보내지도 않는다 — SSH 인증은 ssh 에 맡긴다
+ * (개인키 · ssh-agent · ~/.ssh/config).
  */
 
 const STORAGE_KEY = 'cd-source'
@@ -62,7 +63,6 @@ function parseSource(value: Record<string, unknown>): SourceConfig {
   const port = Number(value.port)
   return {
     mode: 'ssh',
-    auth: value.auth === 'password' ? 'password' : 'key',
     host: asString(value.host),
     port: Number.isFinite(port) && port > 0 ? port : null,
     user: asString(value.user),
@@ -134,8 +134,6 @@ export function sourceParams(config: SourceConfig): Record<string, string> {
   }
 
   params.mode = 'ssh'
-  // 비밀번호 자체는 절대 보내지 않는다 — 방식만 알려준다
-  if (config.auth === 'password') params.auth = 'password'
   params.host = config.host.trim()
   params.user = config.user.trim()
   params.root = config.root.trim()

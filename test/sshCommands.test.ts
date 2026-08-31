@@ -1,8 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import type { ExecException } from 'node:child_process'
 import {
   buildSshArgs,
-  existsCommand,
+  formatSshCommand,
   joinRemote,
   listDirsCommand,
   listFilesCommand,
@@ -13,6 +14,8 @@ import {
   shellQuote,
   sshOptions,
 } from '../server/source/sshCommands.ts'
+import { decodeSshMessage, toSourceError } from '../server/source/sshSource.ts'
+import type { SourceError } from '../server/source/types.ts'
 import { readSourceConfig } from '../server/codeRepositoryPlugin.ts'
 import type { SshSourceConfig } from '../src/types.ts'
 
@@ -23,7 +26,6 @@ import type { SshSourceConfig } from '../src/types.ts'
 
 const CONN: SshSourceConfig = {
   mode: 'ssh',
-  auth: 'key',
   host: 'build-01',
   port: null,
   user: 'deploy',
@@ -61,10 +63,18 @@ test('셸 메타문자가 명령으로 새어 나가지 않는다', () => {
 
 test('선행 ~ 는 원격에서 확장되도록 따옴표 밖에 둔다', () => {
   // 작은따옴표 안에 넣으면 셸이 ~ 를 확장하지 않아 리터럴 경로가 되어 버린다
-  assert.equal(quoteRemotePath('~/release'), `"$HOME"/'release'`)
-  assert.equal(quoteRemotePath('~'), '"$HOME"')
+  assert.equal(quoteRemotePath('~/release'), "~/'release'")
+  assert.equal(quoteRemotePath('~'), '~')
   assert.equal(quoteRemotePath('~build/release'), "~build/'release'")
   assert.equal(quoteRemotePath('~build'), '~build')
+})
+
+test('홈을 "$HOME" 으로 바꾸지 않는다 — 붙여넣을 수 없는 명령이 된다', () => {
+  // 큰따옴표·$ 가 들어가면 표시할 때 역슬래시 escape 가 생긴다. 윈도우 PowerShell 은
+  // 역슬래시를 escape 로 보지 않고 $HOME 을 먼저 풀어 버려 원격에서 unexpected EOF 가 난다.
+  const quoted = quoteRemotePath('~/release')
+  assert.equal(quoted.includes('$'), false, quoted)
+  assert.equal(quoted.includes('"'), false, quoted)
 })
 
 test('틸드 모양이 아니면 통째로 인용한다', () => {
@@ -86,11 +96,17 @@ test('원격 경로를 이을 때 슬래시가 중복되지 않는다', () => {
 
 /* ---------------- ssh 옵션 ---------------- */
 
-test('비밀번호를 절대 묻지 않도록 BatchMode 를 강제한다', () => {
-  // 프롬프트가 뜨면 개발 서버가 통째로 멈춘다
+test('BatchMode 를 켜지 않는다 — 키가 없으면 ssh 가 터미널에 직접 묻는다', () => {
+  // BatchMode=yes 면 프롬프트 없이 바로 실패해 비밀번호로 접속할 길이 없어진다
   const opts = sshOptions(CONN)
-  assert.ok(opts.includes('BatchMode=yes'))
+  assert.equal(opts.some((o) => o.startsWith('BatchMode')), false, opts.join(' '))
   assert.ok(opts.some((o) => o.startsWith('ConnectTimeout=')))
+})
+
+test('인증을 대신 처리하지 않는다 — 비밀번호 관련 옵션을 만들지 않는다', () => {
+  // 인증은 ssh 몫이다 (개인키 · ssh-agent · ~/.ssh/config)
+  const joined = sshOptions(CONN).join(' ')
+  assert.ok(!/PubkeyAuthentication|PreferredAuthentications|NumberOfPasswordPrompts/.test(joined), joined)
 })
 
 test('포트·개인키는 지정했을 때만 붙는다', () => {
@@ -108,15 +124,11 @@ test('argv 는 [옵션..., user@host, 원격명령] 순서다', () => {
   assert.equal(args[args.length - 1], 'ls -1F')
 })
 
-test('호스트 키를 자동 수락하지도, 물어보지도 않는다', () => {
-  // 자동 수락은 중간자 공격을 막지 못한다.
-  // 묻지 않는 것도 중요하다 — 비밀번호 인증에서는 그 질문이 askpass 로 가고,
-  // askpass 는 문구를 보지 않고 비밀번호를 답한다 (askpass.test.ts 참고).
-  for (const auth of ['key', 'password'] as const) {
-    const joined = sshOptions({ ...CONN, auth }).join(' ')
-    assert.ok(joined.includes('StrictHostKeyChecking=yes'), auth)
-    assert.equal(/StrictHostKeyChecking=(no|accept-new)/.test(joined), false, auth)
-  }
+test('호스트 키를 자동 수락하지 않는다', () => {
+  // 자동 수락은 중간자 공격을 막지 못한다 — known_hosts 등록은 사람이 한 번 한다
+  const joined = sshOptions(CONN).join(' ')
+  assert.ok(joined.includes('StrictHostKeyChecking=yes'), joined)
+  assert.equal(/StrictHostKeyChecking=(no|accept-new)/.test(joined), false, joined)
 })
 
 /* ---------------- 원격 명령 ---------------- */
@@ -124,17 +136,15 @@ test('호스트 키를 자동 수락하지도, 물어보지도 않는다', () =>
 test('원격 명령에 경로가 인용된 채로 들어간다', () => {
   assert.equal(listDirsCommand('/home/a b'), "ls -1F -- '/home/a b'")
   assert.equal(readFileCommand('/x/y.pc'), "cat -- '/x/y.pc'")
-  assert.equal(existsCommand('/x'), "if test -d '/x'; then echo __OK__; else echo __NO__; fi")
-  assert.ok(listFilesCommand('/x').startsWith("find '/x' -type f"))
+  assert.ok(listFilesCommand('/x').startsWith("cd '/x' 2>/dev/null && find . -type f"))
 })
 
-test('존재 확인은 결과를 종료 코드가 아니라 표준출력으로 알린다', () => {
-  // `test -d X && echo` 는 경로가 없으면 exit 1 이라 접속 실패와 구분되지 않는다.
-  // if/else 로 항상 정상 종료해야 "접속 실패"와 "경로 없음"을 나눌 수 있다.
-  const cmd = existsCommand('/x')
-  assert.ok(cmd.startsWith('if '))
-  assert.ok(cmd.includes('__OK__') && cmd.includes('__NO__'))
-  assert.ok(cmd.trimEnd().endsWith('fi'))
+test('루트 존재 확인을 위한 별도 명령을 만들지 않는다', () => {
+  // 예전엔 `test -d` 로 한 번 더 붙었다. ssh 가 원격 명령의 종료 코드를 그대로 돌려주고
+  // 자기 실패는 255 로 알리므로(ssh(1)), 날짜 목록을 읽는 `ls` 하나로 "폴더 없음"과
+  // "접속 실패"가 갈린다 — 요청마다 접속이 한 번 줄었다.
+  const commands = [listDirsCommand('/x'), listFilesCommand('/x'), readFileCommand('/x/y.pc')]
+  for (const cmd of commands) assert.equal(/test -d/.test(cmd), false, cmd)
 })
 
 test('파일 목록은 GNU 전용 옵션을 쓰지 않는다', () => {
@@ -158,40 +168,44 @@ test('CRLF 로 와도 디렉터리를 알아본다', () => {
 
 test('wc -c 출력을 상대 경로와 크기로 바꾼다', () => {
   const stdout = [
-    '     120 /rel/2026-08-01/ord/ord_create.pc',
-    '      45 /rel/2026-08-01/pay/pay_approve.pc',
+    '     120 ./ord/ord_create.pc',
+    '      45 ./pay/pay_approve.pc',
     '     165 total',
   ].join('\n')
 
-  assert.deepEqual(parseFileSizes(stdout, '/rel/2026-08-01'), [
+  assert.deepEqual(parseFileSizes(stdout), [
     { path: 'ord/ord_create.pc', size: 120 },
     { path: 'pay/pay_approve.pc', size: 45 },
   ])
 })
 
-test('total 줄과 범위 밖 경로는 걸러낸다', () => {
+test('total 줄과 ./ 로 시작하지 않는 줄은 걸러낸다', () => {
   const stdout = [
-    '  10 /rel/2026-08-01/a.pc',
+    '  10 ./a.pc',
     '  99 total',
-    '  20 /other/b.pc', // 다른 폴더 — 섞여 들어오면 안 된다
+    '  20 /other/b.pc', // 폴더 밖 경로 — 섞여 들어오면 안 된다
     '',
   ].join('\n')
-  assert.deepEqual(parseFileSizes(stdout, '/rel/2026-08-01'), [{ path: 'a.pc', size: 10 }])
+  assert.deepEqual(parseFileSizes(stdout), [{ path: 'a.pc', size: 10 }])
 })
 
 test('경로에 공백이 있어도 끊기지 않는다', () => {
-  const stdout = '  7 /rel/d/ord/my file.pc'
-  assert.deepEqual(parseFileSizes(stdout, '/rel/d'), [{ path: 'ord/my file.pc', size: 7 }])
+  assert.deepEqual(parseFileSizes('  7 ./ord/my file.pc'), [{ path: 'ord/my file.pc', size: 7 }])
 })
 
-test('스냅샷 폴더 끝의 슬래시는 있으나 없으나 같다', () => {
-  const stdout = '  5 /rel/d/a.pc'
-  assert.deepEqual(parseFileSizes(stdout, '/rel/d/'), [{ path: 'a.pc', size: 5 }])
+test('~ 루트여도 파일 목록이 비지 않는다', () => {
+  // 예전엔 절대 경로로 받아 `~/rel/…` 과 비교했다. 원격은 확장한 `/home/deploy/rel/…` 을
+  // 돌려주므로 접속도 되고 폴더도 보이는데 파일만 0개가 됐다 — 원인 찾기 어려운 실패였다.
+  const cmd = listFilesCommand('~/rel/2026-08-01')
+  assert.ok(cmd.startsWith(`cd ~/'rel/2026-08-01' `), cmd)
+  assert.ok(cmd.includes('find . -type f'), cmd)
+  // 원격이 확장한 실제 경로를 몰라도 파싱된다
+  assert.deepEqual(parseFileSizes('  5 ./ord/a.pc'), [{ path: 'ord/a.pc', size: 5 }])
 })
 
 test('빈 출력·잡음은 빈 목록', () => {
   for (const stdout of ['', '\n\n', 'find: cannot read directory', '  총 0']) {
-    assert.deepEqual(parseFileSizes(stdout, '/rel/d'), [], JSON.stringify(stdout))
+    assert.deepEqual(parseFileSizes(stdout), [], JSON.stringify(stdout))
   }
 })
 
@@ -222,7 +236,6 @@ test('ssh 파라미터를 설정으로 읽는다', () => {
   )
   assert.deepEqual(config, {
     mode: 'ssh',
-    auth: 'key',
     host: 'h',
     port: 2222,
     user: 'u',
@@ -239,48 +252,142 @@ test('포트가 숫자가 아니면 기본값(null)으로 둔다', () => {
   }
 })
 
-/* ---------------- 비밀번호 인증 옵션 ---------------- */
-
-const PW: SshSourceConfig = { ...CONN, auth: 'password' }
-
-test('비밀번호 인증에서는 BatchMode 를 켜지 않는다', () => {
-  // BatchMode=yes 면 askpass 까지 막혀 비밀번호를 넘길 방법이 없어진다
-  const opts = sshOptions(PW)
-  assert.ok(!opts.includes('BatchMode=yes'))
-  assert.ok(opts.includes('BatchMode=no'))
-})
-
-test('비밀번호 인증은 키를 먼저 시도하지 않는다', () => {
-  // 키를 먼저 타면 키 암호를 묻다가 멈추거나 엉뚱하게 실패한다
-  const opts = sshOptions(PW)
-  assert.ok(opts.includes('PubkeyAuthentication=no'))
-  assert.ok(opts.includes('PreferredAuthentications=password,keyboard-interactive'))
-})
-
-test('비밀번호가 틀리면 한 번만 시도하고 끝낸다', () => {
-  // 기본 3회 재시도는 프롬프트가 없는 환경에서 그냥 지연만 만든다
-  assert.ok(sshOptions(PW).includes('NumberOfPasswordPrompts=1'))
-})
-
-test('키 인증은 예전처럼 BatchMode 로 잠근다', () => {
-  const opts = sshOptions(CONN)
-  assert.ok(opts.includes('BatchMode=yes'))
-  assert.ok(!opts.includes('PubkeyAuthentication=no'))
-})
+/* ---------------- 자격증명이 새어 나가지 않는지 ---------------- */
 
 test('argv 어디에도 비밀번호가 실리지 않는다', () => {
-  // 명령줄에 넣으면 `ps` 로 다른 사용자에게 보인다 — 환경변수로만 넘겨야 한다
-  const args = buildSshArgs(PW, 'ls')
-  assert.ok(!args.some((a) => /password=|passwd|pw=/i.test(a)))
+  const args = buildSshArgs(CONN, 'ls')
+  assert.ok(!args.some((a) => /password|passwd|pw=|askpass/i.test(a)), args.join(' '))
 })
 
-test('auth 파라미터를 읽는다', () => {
-  assert.equal(readSourceConfig(q('mode=ssh&host=h&user=u&root=%2Fr&auth=password')).mode === 'ssh' &&
-    (readSourceConfig(q('mode=ssh&host=h&user=u&root=%2Fr&auth=password')) as SshSourceConfig).auth,
-    'password')
-  // 모르는 값은 안전한 쪽(키)으로 둔다
-  for (const raw of ['', 'kerberos', 'PASSWORD']) {
-    const c = readSourceConfig(q(`mode=ssh&host=h&user=u&root=%2Fr&auth=${raw}`))
-    assert.equal(c.mode === 'ssh' && c.auth, 'key', raw)
+test('auth 파라미터는 더 이상 설정으로 올라오지 않는다', () => {
+  // 인증 방식을 고르는 자리가 없어졌다 — 남아 있는 쿼리는 무시한다
+  const config = readSourceConfig(q('mode=ssh&host=h&user=u&root=%2Fr&auth=password'))
+  assert.equal('auth' in (config as unknown as Record<string, unknown>), false)
+})
+
+/* ---------------- 실행한 명령 표시 ---------------- */
+
+/** 소스에 역슬래시를 직접 쓰면 읽기 어려워 상수로 둔다 */
+const BS = String.fromCharCode(92)
+
+test('실행한 ssh 명령을 붙여넣을 수 있는 한 줄로 만든다', () => {
+  const shown = formatSshCommand(buildSshArgs({ ...CONN, port: 2222 }, listDirsCommand('/home/a b')))
+  assert.ok(shown.startsWith('ssh -o ConnectTimeout='), shown)
+  assert.ok(shown.includes('-p 2222 deploy@build-01'), shown)
+  // 공백이 든 원격 명령은 한 인자로 보이도록 감싼다
+  assert.ok(shown.endsWith(`"ls -1F -- '/home/a b'"`), shown)
+})
+
+test('옵션·호스트처럼 안전한 인자는 따옴표 없이 둔다 — 읽기 쉬워야 한다', () => {
+  const shown = formatSshCommand(buildSshArgs(CONN, 'ls'))
+  assert.ok(shown.includes(' -o StrictHostKeyChecking=yes '), shown)
+  assert.ok(shown.includes(' deploy@build-01 '), shown)
+})
+
+test('붙여넣을 수 있어야 한다 — 표시용 명령에 escape 가 생기지 않는다', () => {
+  // 역슬래시·$ 가 섞이면 셸마다 해석이 갈린다. 특히 윈도우 PowerShell 은 역슬래시를
+  // escape 로 보지 않고 $ 를 자기가 먼저 풀어 버려, 붙여넣으면 따옴표가 깨진 채
+  // 원격으로 넘어가 원격 셸이 `unexpected EOF` 로 죽는다.
+  const roots = ['~/release', '~deploy/release', '/data/스냅샷 모음', 'release', '/home/deploy/release']
+  for (const root of roots) {
+    const commands = [listDirsCommand(root), listFilesCommand(root), readFileCommand(root)]
+    for (const command of commands) {
+      const shown = formatSshCommand(buildSshArgs(CONN, command))
+      assert.equal(shown.includes(BS), false, shown)
+      assert.equal(shown.includes('$'), false, shown)
+    }
   }
+})
+
+test('원격 경로를 감싼 작은따옴표는 그대로 남는다', () => {
+  // 큰따옴표 안의 작은따옴표는 셸이 건드리지 않는다 — 원격에서 같은 뜻이 되려면 살아 있어야 한다
+  const shown = formatSshCommand(buildSshArgs(CONN, readFileCommand('/x/y.pc')))
+  assert.ok(shown.endsWith(`"cat -- '/x/y.pc'"`), shown)
+})
+
+test('표시용 명령에도 자격증명이 실리지 않는다', () => {
+  const shown = formatSshCommand(buildSshArgs(CONN, listFilesCommand('/rel/d')))
+  assert.ok(!/password|passwd|askpass/i.test(shown), shown)
+})
+
+/* ---------------- 오류 안내 ---------------- */
+
+const RAN = `ssh deploy@build-01 "ls -1F -- '/rel'"`
+
+/** execFile 이 넘기는 실패 모양을 흉내 낸다 (stderr, 그리고 code·killed 같은 부가 정보) */
+const fail = (stderr: string, extra: Partial<ExecException> = {}): SourceError =>
+  toSourceError(
+    Object.assign(new Error('Command failed: ssh -o ConnectTimeout=10 …'), {
+      cmd: 'ssh -o ConnectTimeout=10 …',
+      ...extra,
+    }),
+    stderr,
+    RAN
+  )
+
+test('어떤 ssh 실패든 실행한 명령을 함께 보여준다', () => {
+  // 원격 명령을 이 도구가 조립하므로, 명령을 안 보여주면 무엇이 실패했는지 알 길이 없다
+  const cases: [string, Partial<ExecException>][] = [
+    ['deploy@build-01: Permission denied (publickey,password).', {}],
+    ['Host key verification failed.', {}],
+    ['ssh: connect to host build-01 port 22: Connection refused', {}],
+    ['bash: find: command not found', {}],
+    ['', { killed: true }],
+    ['', { code: 'ENOENT' }],
+  ]
+  for (const [stderr, extra] of cases) {
+    const label = JSON.stringify([stderr, extra])
+    const { message } = fail(stderr, extra)
+    assert.ok(message.includes('실행한 명령:'), label)
+    assert.ok(message.includes(RAN), label)
+  }
+})
+
+test('실패 원인별로 코드를 나눈다 — 고쳐야 할 곳이 다르다', () => {
+  assert.equal(fail('deploy@build-01: Permission denied (publickey,password).').code, 'SSH_AUTH_FAILED')
+  assert.equal(fail('Host key verification failed.').code, 'SSH_HOST_KEY')
+  assert.equal(fail('ssh: connect to host build-01 port 22: Connection refused').code, 'SSH_UNREACHABLE')
+  assert.equal(fail('bash: find: command not found').code, 'SSH_FAILED')
+  assert.equal(fail('', { code: 'ENOENT' }).code, 'SSH_NOT_FOUND')
+  assert.equal(fail('', { killed: true }).code, 'SSH_TIMEOUT')
+})
+
+test('시간 초과 안내에 명령이 두 번 찍히지 않는다', () => {
+  // stderr 가 비면 error.message 에 argv 가 통째로 들어 있다 — 그대로 쓰면 명령이 중복된다
+  const { message } = fail('', { killed: true })
+  assert.equal(message.includes('Command failed'), false, message)
+  assert.equal(message.split(RAN).length - 1, 1, message)
+})
+
+test('stderr 원문을 지우지 않는다 — 진짜 원인은 거기 적혀 있다', () => {
+  const stderr = 'ssh: Could not resolve hostname build-01: Name or service not known'
+  assert.ok(fail(stderr).message.includes(stderr))
+})
+
+/* ---------------- ssh 오류 문구 되돌리기 ---------------- */
+
+/** OpenSSH 가 내보내는 모양 그대로 만든다 — ASCII 밖 바이트는 `\nnn` 리터럴이 된다 */
+const visEscaped = (...octals: string[]): string => octals.map((o) => `${BS}${o}`).join('')
+
+test('ssh 가 8진으로 escape 한 한글 오류 문구를 되돌린다', () => {
+  // 한국어 윈도우에서는 OS 가 준 CP949 메시지가 통째로 escape 되어 나온다.
+  // 인코딩만 바꿔 읽어서는 안 풀리므로 되돌린 뒤 디코딩해야 한다.
+  const escaped = visEscaped('276', '313', '267', '301', '301', '370') // 알려진
+  const raw = Buffer.from(`ssh: Could not resolve hostname h: ${escaped}.`, 'latin1')
+  assert.equal(decodeSshMessage(raw), 'ssh: Could not resolve hostname h: 알려진.')
+})
+
+test('escape 가 없는 stderr 는 그대로 둔다', () => {
+  for (const text of [
+    'Permission denied (publickey,password).',
+    'Host key verification failed.',
+    'ssh: connect to host build-01 port 22: Connection refused',
+  ]) {
+    assert.equal(decodeSshMessage(Buffer.from(text, 'utf8')), text)
+  }
+})
+
+test('UTF-8 로 온 한글은 건드리지 않는다', () => {
+  const text = '원격에서 보낸 한글 메시지'
+  assert.equal(decodeSshMessage(Buffer.from(text, 'utf8')), text)
 })
