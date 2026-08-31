@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { compareSnapshots, readFilePair } from '../server/comparisonService.ts'
+import { compareSnapshots, readFilePair, type SideRef } from '../server/comparisonService.ts'
 import {
   listSnapshots,
   readFileTexts,
@@ -27,6 +27,16 @@ const cfg = readRepositoryConfig()
 const LOCAL: SourceConfig = { mode: 'local', root: './sample-code/prod', encoding: 'auto' }
 const source = createSource(LOCAL, projectRoot)
 const key = sourceKey(LOCAL, projectRoot)
+
+/**
+ * 비교 한쪽. 좌우가 **같은 위치의 두 날짜**인 경우가 대부분이라 그것을 기본값으로 둔다
+ * (운영↔테스트처럼 위치가 갈리는 경우는 소스·키를 함께 넘긴다).
+ */
+const at = (snapshotId: string, src: SnapshotSource = source, k: string = key): SideRef => ({
+  source: src,
+  key: k,
+  snapshotId,
+})
 
 const find = (files: readonly ComparedFile[], p: string): ComparedFile => {
   const f = files.find((x) => x.path === p)
@@ -69,7 +79,7 @@ test('잘못된 스냅샷 id 는 빈 결과 — 폴더 밖으로 나가지 않�
 /* ---------------- 파일 상태 판정 ---------------- */
 
 test('좌우 비교 — 신규/삭제/변경/동일을 구분한다', async () => {
-  const res = await compareSnapshots(source, cfg, key, '2026-07-01', '2026-08-01', DEFAULT_OPTIONS)
+  const res = await compareSnapshots(cfg, at('2026-07-01'), at('2026-08-01'), DEFAULT_OPTIONS)
 
   assert.equal(find(res.files, 'stl/stl_daily.pc').status, 'added')
   assert.equal(find(res.files, 'pay/pay_cancel.pc').status, 'removed')
@@ -78,7 +88,7 @@ test('좌우 비교 — 신규/삭제/변경/동일을 구분한다', async () =
 })
 
 test('한쪽에만 있는 파일도 통계를 채운다 — 전체 합계가 실제 변경량을 반영해야 한다', async () => {
-  const res = await compareSnapshots(source, cfg, key, '2026-07-01', '2026-08-01', DEFAULT_OPTIONS)
+  const res = await compareSnapshots(cfg, at('2026-07-01'), at('2026-08-01'), DEFAULT_OPTIONS)
 
   const added = find(res.files, 'stl/stl_daily.pc')
   assert.ok(added.stats.added > 0, '신규 파일은 전 줄이 added 여야 한다')
@@ -91,14 +101,14 @@ test('한쪽에만 있는 파일도 통계를 채운다 — 전체 합계가 실
 })
 
 test('동일한 파일은 변경 줄 0, 유사도 1', async () => {
-  const res = await compareSnapshots(source, cfg, key, '2026-07-01', '2026-08-01', DEFAULT_OPTIONS)
+  const res = await compareSnapshots(cfg, at('2026-07-01'), at('2026-08-01'), DEFAULT_OPTIONS)
   const same = find(res.files, 'cmm/cmm_util.pc')
   assert.equal(same.stats.changedLines, 0)
   assert.equal(same.stats.lineSimilarity, 1)
 })
 
 test('같은 스냅샷끼리 비교하면 전부 동일', async () => {
-  const res = await compareSnapshots(source, cfg, key, '2026-08-01', '2026-08-01', DEFAULT_OPTIONS)
+  const res = await compareSnapshots(cfg, at('2026-08-01'), at('2026-08-01'), DEFAULT_OPTIONS)
   assert.ok(res.files.length > 0)
   assert.ok(
     res.files.every((f) => f.status === 'same'),
@@ -108,8 +118,8 @@ test('같은 스냅샷끼리 비교하면 전부 동일', async () => {
 })
 
 test('좌우를 뒤집으면 신규와 삭제가 뒤바뀐다', async () => {
-  const forward = await compareSnapshots(source, cfg, key, '2026-07-01', '2026-08-01', DEFAULT_OPTIONS)
-  const backward = await compareSnapshots(source, cfg, key, '2026-08-01', '2026-07-01', DEFAULT_OPTIONS)
+  const forward = await compareSnapshots(cfg, at('2026-07-01'), at('2026-08-01'), DEFAULT_OPTIONS)
+  const backward = await compareSnapshots(cfg, at('2026-08-01'), at('2026-07-01'), DEFAULT_OPTIONS)
 
   assert.equal(find(forward.files, 'stl/stl_daily.pc').status, 'added')
   assert.equal(find(backward.files, 'stl/stl_daily.pc').status, 'removed')
@@ -120,7 +130,7 @@ test('좌우를 뒤집으면 신규와 삭제가 뒤바뀐다', async () => {
 /* ---------------- 패키지 요약 ---------------- */
 
 test('한쪽에만 있는 패키지는 신규/삭제로 표시한다', async () => {
-  const res = await compareSnapshots(source, cfg, key, '2026-07-01', '2026-08-01', DEFAULT_OPTIONS)
+  const res = await compareSnapshots(cfg, at('2026-07-01'), at('2026-08-01'), DEFAULT_OPTIONS)
   const stl = pkg(res.packages, 'stl')
   assert.equal(stl.status, 'added')
   assert.equal(stl.added, 3)
@@ -128,7 +138,7 @@ test('한쪽에만 있는 패키지는 신규/삭제로 표시한다', async () 
 })
 
 test('파일이 하나라도 움직인 패키지는 변경으로 표시한다', async () => {
-  const res = await compareSnapshots(source, cfg, key, '2026-07-01', '2026-08-01', DEFAULT_OPTIONS)
+  const res = await compareSnapshots(cfg, at('2026-07-01'), at('2026-08-01'), DEFAULT_OPTIONS)
 
   const pay = pkg(res.packages, 'pay')
   assert.equal(pay.status, 'modified') // 파일 수정은 없고 신규 3 + 삭제 1 뿐이어도 변경이다
@@ -143,7 +153,7 @@ test('파일이 하나라도 움직인 패키지는 변경으로 표시한다', 
 
 test('08-01 → 09-01 은 패키지 4가지 상태를 모두 보여준다', async () => {
   // 이 조합이 신규·삭제·변경·동일을 한 화면에서 확인하는 예시다
-  const res = await compareSnapshots(source, cfg, key, '2026-08-01', '2026-09-01', DEFAULT_OPTIONS)
+  const res = await compareSnapshots(cfg, at('2026-08-01'), at('2026-09-01'), DEFAULT_OPTIONS)
 
   const byStatus = Object.fromEntries(res.packages.map((p) => [p.name, p.status]))
   assert.deepEqual(byStatus, {
@@ -169,7 +179,7 @@ test('08-01 → 09-01 은 패키지 4가지 상태를 모두 보여준다', asyn
 })
 
 test('삭제된 패키지의 파일은 전부 removed 로 잡힌다', async () => {
-  const res = await compareSnapshots(source, cfg, key, '2026-08-01', '2026-09-01', DEFAULT_OPTIONS)
+  const res = await compareSnapshots(cfg, at('2026-08-01'), at('2026-09-01'), DEFAULT_OPTIONS)
   const cmmFiles = res.files.filter((f) => f.packageName === 'cmm')
 
   assert.equal(cmmFiles.length, 3)
@@ -181,7 +191,7 @@ test('삭제된 패키지의 파일은 전부 removed 로 잡힌다', async () =
 })
 
 test('패키지 변경 줄 수 = 소속 파일 변경 줄 수의 합', async () => {
-  const res = await compareSnapshots(source, cfg, key, '2026-06-01', '2026-08-01', DEFAULT_OPTIONS)
+  const res = await compareSnapshots(cfg, at('2026-06-01'), at('2026-08-01'), DEFAULT_OPTIONS)
   for (const p of res.packages) {
     const expected = res.files
       .filter((f) => f.packageName === p.name)
@@ -194,7 +204,7 @@ test('패키지 변경 줄 수 = 소속 파일 변경 줄 수의 합', async () 
 
 test('EUC-KR 로 저장된 소스의 한글이 자동 판별로 읽힌다', async () => {
   // sample-code 의 rpt_notice.pc 는 실제 EUC-KR 로 저장돼 있다
-  const pair = await readFilePair(source, '2026-08-01', '2026-09-01', 'pay/rpt_notice.pc')
+  const pair = await readFilePair(at('2026-08-01'), at('2026-09-01'), 'pay/rpt_notice.pc')
 
   assert.ok(pair.leftText?.includes('고객 공지 발송 대상 조회'), '이전 쪽 한글 주석')
   assert.ok(pair.rightText?.includes('발송 이력을 남겨 재발송을 막는다'), '이후 쪽 한글 주석')
@@ -202,7 +212,7 @@ test('EUC-KR 로 저장된 소스의 한글이 자동 판별로 읽힌다', asyn
 })
 
 test('EUC-KR 파일도 한글 주석 변경이 diff 에 잡힌다', async () => {
-  const res = await compareSnapshots(source, cfg, key, '2026-08-01', '2026-09-01', DEFAULT_OPTIONS)
+  const res = await compareSnapshots(cfg, at('2026-08-01'), at('2026-09-01'), DEFAULT_OPTIONS)
   const notice = find(res.files, 'pay/rpt_notice.pc')
 
   assert.equal(notice.status, 'modified')
@@ -280,8 +290,8 @@ test('내용이 같은 파일은 한쪽만 읽는다 — 결과는 전부 읽었
   const plain = new CountingSource(createSource(LOCAL, projectRoot), false)
   const fast = new CountingSource(createSource(LOCAL, projectRoot), true)
 
-  const full = await compareSnapshots(plain, cfg, 'plain', '2026-06-01', '2026-07-01')
-  const skipped = await compareSnapshots(fast, cfg, 'fast', '2026-06-01', '2026-07-01')
+  const full = await compareSnapshots(cfg, at('2026-06-01', plain, 'plain'), at('2026-07-01', plain, 'plain'))
+  const skipped = await compareSnapshots(cfg, at('2026-06-01', fast, 'fast'), at('2026-07-01', fast, 'fast'))
 
   // 성능 개선이 정확성을 바꾸면 그건 버그다. 요약 카드가 쓰는 총 줄 수·문자 수까지 같아야 한다.
   assert.deepEqual(skipped, full, '체크섬으로 건너뛴 결과가 전부 읽은 결과와 달라지면 안 된다')
@@ -297,17 +307,67 @@ test('내용이 같은 파일은 한쪽만 읽는다 — 결과는 전부 읽었
 
 test('체크섬이 없는 소스는 예전처럼 양쪽을 다 읽는다', async () => {
   const plain = new CountingSource(createSource(LOCAL, projectRoot), false)
-  await compareSnapshots(plain, cfg, 'plain-only', '2026-06-01', '2026-07-01')
+  await compareSnapshots(cfg, at('2026-06-01', plain, 'plain-only'), at('2026-07-01', plain, 'plain-only'))
 
   const both = plain.reads.filter((r) => r.startsWith('2026-06-01/')).length
   assert.ok(both > 0)
 })
 
+/* ---------------- 좌우가 서로 다른 위치 (운영 ↔ 테스트) ---------------- */
+
+const TEST_ENV: SourceConfig = { mode: 'local', root: './sample-code/test', encoding: 'auto' }
+const testSource = createSource(TEST_ENV, projectRoot)
+const testKey = sourceKey(TEST_ENV, projectRoot)
+
+test('환경이 다른 두 폴더를 견준다', async () => {
+  const res = await compareSnapshots(
+    cfg,
+    at('2026-09-01'),
+    at('2026-09-01', testSource, testKey)
+  )
+
+  assert.equal(res.left, '2026-09-01')
+  assert.equal(res.right, '2026-09-01')
+  assert.ok(res.files.length > 0, '양쪽에서 파일을 읽어야 한다')
+})
+
+test('같은 날짜여도 위치가 다르면 다른 비교다 — 캐시가 섞이면 안 된다', async () => {
+  const sameEnv = await compareSnapshots(cfg, at('2026-08-01'), at('2026-09-01'))
+  const crossEnv = await compareSnapshots(
+    cfg,
+    at('2026-08-01'),
+    at('2026-09-01', testSource, testKey)
+  )
+
+  // 날짜 쌍이 같아도 오른쪽이 다른 폴더라 결과가 같을 수 없다
+  assert.notDeepEqual(crossEnv.files, sameEnv.files)
+})
+
+test('날짜 순서가 거꾸로여도 된다 — 환경이 다르면 뒤처진 쪽을 왼쪽에 둘 수 있다', async () => {
+  // 운영 최신(9/1)을 기준으로, 테스트가 아직 8/1 인 상태를 견준다
+  const res = await compareSnapshots(
+    cfg,
+    at('2026-09-01'),
+    at('2026-08-01', testSource, testKey)
+  )
+  assert.ok(res.files.length > 0)
+})
+
+test('본문도 각자 자기 위치에서 읽어온다', async () => {
+  const pair = await readFilePair(
+    at('2026-09-01'),
+    at('2026-09-01', testSource, testKey),
+    'ord/ord_create.pc'
+  )
+  assert.ok(pair.leftText, '운영 쪽 본문')
+  assert.ok(pair.rightText, '테스트 쪽 본문')
+})
+
 /* ---------------- 무시 옵션 ---------------- */
 
 test('무시 옵션은 비교 결과에 반영된다 (캐시가 옵션을 구분해야 한다)', async () => {
-  const strict = await compareSnapshots(source, cfg, key, '2026-06-01', '2026-07-01', DEFAULT_OPTIONS)
-  const loose = await compareSnapshots(source, cfg, key, '2026-06-01', '2026-07-01', {
+  const strict = await compareSnapshots(cfg, at('2026-06-01'), at('2026-07-01'), DEFAULT_OPTIONS)
+  const loose = await compareSnapshots(cfg, at('2026-06-01'), at('2026-07-01'), {
     ...DEFAULT_OPTIONS,
     ignoreComments: true,
     ignoreBlankLines: true,
@@ -326,7 +386,7 @@ test('무시 옵션은 비교 결과에 반영된다 (캐시가 옵션을 구분
 /* ---------------- 본문 읽기 ---------------- */
 
 test('선택한 파일의 좌우 본문을 읽는다', async () => {
-  const pair = await readFilePair(source, '2026-07-01', '2026-08-01', 'cmm/cmm_log.pc')
+  const pair = await readFilePair(at('2026-07-01'), at('2026-08-01'), 'cmm/cmm_log.pc')
   assert.equal(pair.path, 'cmm/cmm_log.pc')
   assert.ok(pair.leftText?.includes('log_write'))
   assert.ok(pair.rightText?.includes('log_set_level'), '이후 스냅샷에만 있는 함수')
@@ -334,11 +394,11 @@ test('선택한 파일의 좌우 본문을 읽는다', async () => {
 })
 
 test('한쪽에만 있는 파일은 그쪽 본문만 온다', async () => {
-  const added = await readFilePair(source, '2026-07-01', '2026-08-01', 'stl/stl_daily.pc')
+  const added = await readFilePair(at('2026-07-01'), at('2026-08-01'), 'stl/stl_daily.pc')
   assert.equal(added.leftText, null)
   assert.ok(added.rightText)
 
-  const removed = await readFilePair(source, '2026-07-01', '2026-08-01', 'pay/pay_cancel.pc')
+  const removed = await readFilePair(at('2026-07-01'), at('2026-08-01'), 'pay/pay_cancel.pc')
   assert.ok(removed.leftText)
   assert.equal(removed.rightText, null)
 })

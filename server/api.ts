@@ -1,7 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { parseUrl, queryFlag, requiredParam, sendError, sendJson } from './http.ts'
 import { clearCache, listSnapshots, type RepositoryConfig } from './snapshotRepository.ts'
-import { clearComparisonCache, compareSnapshots, readFilePair } from './comparisonService.ts'
+import {
+  clearComparisonCache,
+  compareSnapshots,
+  readFilePair,
+  type SideRef,
+} from './comparisonService.ts'
 import { createSource, sourceKey } from './source/resolve.ts'
 import { SourceError, type SnapshotSource } from './source/types.ts'
 import type {
@@ -17,8 +22,11 @@ import type {
  * 설정을 브라우저(localStorage)가 들고 있으므로 서버는 상태를 두지 않는다.
  *
  *   GET /api/v1/snapshots[?refresh=1][&소스 파라미터]
- *   GET /api/v1/comparisons?left=&right=[&무시옵션][&소스 파라미터]
- *   GET /api/v1/comparisons/files?left=&right=&path=[&소스 파라미터]
+ *   GET /api/v1/comparisons?left=&right=[&rightRoot=][&무시옵션][&소스 파라미터]
+ *   GET /api/v1/comparisons/files?left=&right=&path=[&rightRoot=][&소스 파라미터]
+ *
+ * 비교는 좌우가 **서로 다른 폴더**일 수 있다 (운영 ↔ 테스트). 서버·계정·인코딩은
+ * 같고 위치만 갈리므로, 다를 때만 `rightRoot` 하나를 더 받는다 — 없으면 양쪽이 `root` 다.
  *
  * **GET 뿐이다.** 대상 폴더를 수정하는 동작도, 자격증명을 받는 동작도 없다 —
  * SSH 인증은 ssh 가 알아서 한다(개인키·ssh-agent·~/.ssh/config).
@@ -68,6 +76,22 @@ export function readSourceConfig(query: URLSearchParams): SourceConfig {
   }
 }
 
+/**
+ * 좌우 위치를 읽는다.
+ *
+ * `rightRoot` 가 없거나 `root` 와 같으면 **같은 객체를 돌려준다** — 호출부가 동일성으로
+ * "한 위치인지" 를 가려 훑기를 한 번에 묶는다 (`comparisonService.scanBothSides`).
+ */
+export function readSideSources(query: URLSearchParams): {
+  left: SourceConfig
+  right: SourceConfig
+} {
+  const left = readSourceConfig(query)
+  const rightRoot = (query.get('rightRoot') ?? '').trim()
+  if (!rightRoot || rightRoot === left.root.trim()) return { left, right: left }
+  return { left, right: { ...left, root: rightRoot } }
+}
+
 /** 모르는 값은 자동 판별로 둔다 */
 function readEncoding(raw: string | null): TextEncodingName {
   return raw === 'utf-8' || raw === 'euc-kr' ? raw : 'auto'
@@ -106,6 +130,36 @@ export function createHandler(cfg: RepositoryConfig, projectRoot: string): ApiHa
       }
     }
 
+    /** 비교용 — 좌우 위치를 각각 만든다. 같은 위치면 소스를 새로 만들지 않는다 */
+    const resolveSides = (
+      leftId: string,
+      rightId: string
+    ): { left: SideRef; right: SideRef } | null => {
+      const configs = readSideSources(query)
+      try {
+        const left: SideRef = {
+          source: createSource(configs.left, projectRoot),
+          key: sourceKey(configs.left, projectRoot),
+          snapshotId: leftId,
+        }
+        if (configs.right === configs.left) {
+          return { left, right: { ...left, snapshotId: rightId } }
+        }
+        return {
+          left,
+          right: {
+            source: createSource(configs.right, projectRoot),
+            key: sourceKey(configs.right, projectRoot),
+            snapshotId: rightId,
+          },
+        }
+      } catch (e) {
+        const err = e as SourceError
+        sendError(res, 400, err.code ?? 'SOURCE_INVALID', err.message)
+        return null
+      }
+    }
+
     void (async () => {
       try {
         if (pathname === '/snapshots') {
@@ -132,10 +186,10 @@ export function createHandler(cfg: RepositoryConfig, projectRoot: string): ApiHa
             sendError(res, 400, 'MISSING_PARAM', 'left, right, path 파라미터가 모두 필요합니다.')
             return
           }
-          const resolved = resolve()
-          if (!resolved) return
+          const sides = resolveSides(left, right)
+          if (!sides) return
 
-          const pair = await readFilePair(resolved.source, left, right, path)
+          const pair = await readFilePair(sides.left, sides.right, path)
           if (pair.leftText === null && pair.rightText === null) {
             sendError(res, 404, 'FILE_NOT_FOUND', `양쪽 스냅샷 모두에 없는 파일입니다: ${path}`)
             return
@@ -151,20 +205,13 @@ export function createHandler(cfg: RepositoryConfig, projectRoot: string): ApiHa
             sendError(res, 400, 'MISSING_PARAM', 'left, right 파라미터가 모두 필요합니다.')
             return
           }
-          const resolved = resolve()
-          if (!resolved) return
+          const sides = resolveSides(left, right)
+          if (!sides) return
 
           sendJson(
             res,
             200,
-            await compareSnapshots(
-              resolved.source,
-              cfg,
-              resolved.key,
-              left,
-              right,
-              readDiffOptions(query)
-            )
+            await compareSnapshots(cfg, sides.left, sides.right, readDiffOptions(query))
           )
           return
         }

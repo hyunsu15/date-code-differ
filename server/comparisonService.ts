@@ -21,16 +21,33 @@ import type {
 /**
  * 두 스냅샷을 비교해 "무엇이 바뀌었는지"만 만들어낸다.
  * 파일 본문은 응답에 넣지 않는다 — 선택한 파일만 별도로 읽어간다.
+ *
+ * **좌우는 서로 다른 위치일 수 있다.** 운영과 테스트가 루트 아래 다른 폴더로 나뉘어
+ * 있으면 한쪽은 `release/prod`, 다른 쪽은 `release/test` 를 본다. 같은 위치의 두
+ * 날짜를 견주는 것은 그 특수한 경우일 뿐이라, 여기서는 양쪽을 따로 받는다.
  */
 
-/** 비교 결과 캐시 — (소스, 좌, 우, 무시옵션) 이 같으면 다시 계산하지 않는다 */
+/** 비교 한쪽 — 어디의 어느 스냅샷인지 */
+export interface SideRef {
+  source: SnapshotSource
+  /** 소스 캐시 키. 좌우가 다른 위치일 수 있어 각자 들고 있다 */
+  key: string
+  snapshotId: string
+}
+
+/** 비교 결과 캐시 — (좌 위치·날짜, 우 위치·날짜, 무시옵션) 이 같으면 다시 계산하지 않는다 */
 const comparisonCache = new Map<string, ComparisonResponse>()
 
 export function clearComparisonCache(): void {
   comparisonCache.clear()
 }
 
-function cacheKey(sourceKey: string, left: string, right: string, opts: DiffOptions): string {
+/**
+ * 캐시 키.
+ * 값에 공백·구분자가 들어갈 수 있어 이어 붙이지 않고 JSON 으로 만든다 —
+ * 서로 다른 조합이 같은 키로 뭉개지면 엉뚱한 비교 결과가 나온다.
+ */
+function cacheKey(left: SideRef, right: SideRef, opts: DiffOptions): string {
   const flags = [
     opts.ignoreWhitespace,
     opts.ignoreCase,
@@ -39,25 +56,50 @@ function cacheKey(sourceKey: string, left: string, right: string, opts: DiffOpti
   ]
     .map((b) => (b ? '1' : '0'))
     .join('')
-  return `${sourceKey} ${left} ${right} ${flags}`
+  return JSON.stringify([left.key, left.snapshotId, right.key, right.snapshotId, flags])
+}
+
+const EMPTY_SCAN: SnapshotScan = { files: [], skipped: 0 }
+
+/**
+ * 좌우 스냅샷을 훑는다.
+ * **위치가 같으면 한 번에** 물어본다 — 같은 폴더의 두 날짜를 견주는 흔한 경우에서
+ * 왕복이 하나 준다 (SSH 는 명령 하나가 곧 접속 하나다).
+ */
+async function scanBothSides(
+  cfg: RepositoryConfig,
+  left: SideRef,
+  right: SideRef
+): Promise<[SnapshotScan, SnapshotScan]> {
+  if (left.key === right.key) {
+    const scans = await scanSnapshots(left.source, cfg, left.key, [
+      left.snapshotId,
+      right.snapshotId,
+    ])
+    return [scans.get(left.snapshotId) ?? EMPTY_SCAN, scans.get(right.snapshotId) ?? EMPTY_SCAN]
+  }
+
+  const [leftScans, rightScans] = await Promise.all([
+    scanSnapshots(left.source, cfg, left.key, [left.snapshotId]),
+    scanSnapshots(right.source, cfg, right.key, [right.snapshotId]),
+  ])
+  return [
+    leftScans.get(left.snapshotId) ?? EMPTY_SCAN,
+    rightScans.get(right.snapshotId) ?? EMPTY_SCAN,
+  ]
 }
 
 export async function compareSnapshots(
-  source: SnapshotSource,
   cfg: RepositoryConfig,
-  sourceKey: string,
-  leftId: string,
-  rightId: string,
+  left: SideRef,
+  right: SideRef,
   options: DiffOptions = DEFAULT_OPTIONS
 ): Promise<ComparisonResponse> {
-  const key = cacheKey(sourceKey, leftId, rightId, options)
+  const key = cacheKey(left, right, options)
   const cached = comparisonCache.get(key)
   if (cached) return cached
 
-  const scans = await scanSnapshots(source, cfg, sourceKey, [leftId, rightId])
-  const empty: SnapshotScan = { files: [], skipped: 0 }
-  const leftScan = scans.get(leftId) ?? empty
-  const rightScan = scans.get(rightId) ?? empty
+  const [leftScan, rightScan] = await scanBothSides(cfg, left, right)
 
   const leftByPath = new Map(leftScan.files.map((f) => [f.path, f]))
   const rightByPath = new Map(rightScan.files.map((f) => [f.path, f]))
@@ -73,22 +115,22 @@ export async function compareSnapshots(
     const mirrored = new Set<string>()
 
     for (const relPath of batch) {
-      const left = leftByPath.get(relPath)
-      const right = rightByPath.get(relPath)
+      const leftFile = leftByPath.get(relPath)
+      const rightFile = rightByPath.get(relPath)
 
-      if (left) leftWanted.push(relPath)
-      if (!right) continue
+      if (leftFile) leftWanted.push(relPath)
+      if (!rightFile) continue
       // 내용이 같으면 한쪽만 받아 양쪽에 쓴다 — 전송량이 절반이 된다.
       // 통계(총 줄 수·문자 수)는 동일한 파일에서도 요약 카드에 들어가므로
       // 읽기를 아예 건너뛸 수는 없다. 두 번 받지 않는 것까지가 여기서 할 수 있는 일이다.
-      if (left && sameContent(left, right)) mirrored.add(relPath)
+      if (leftFile && sameContent(leftFile, rightFile)) mirrored.add(relPath)
       else rightWanted.push(relPath)
     }
 
     // 본문을 **한 번에 몰아서** 받는다. 파일마다 따로 물어보면 SSH 왕복이 파일 수에 비례한다.
     const [leftTexts, rightTexts] = await Promise.all([
-      readFileTexts(source, leftId, leftWanted),
-      readFileTexts(source, rightId, rightWanted),
+      readFileTexts(left.source, left.snapshotId, leftWanted),
+      readFileTexts(right.source, right.snapshotId, rightWanted),
     ])
 
     for (const relPath of batch) {
@@ -108,8 +150,8 @@ export async function compareSnapshots(
   }
 
   const response: ComparisonResponse = {
-    left: leftId,
-    right: rightId,
+    left: left.snapshotId,
+    right: right.snapshotId,
     packages: buildPackageChanges(files, leftScan.files, rightScan.files),
     files,
     skipped: leftScan.skipped + rightScan.skipped,
@@ -231,14 +273,13 @@ function packageStatus(pkg: PackageChange, inLeft: boolean, inRight: boolean): P
 
 /** 선택한 파일 한 건의 좌우 본문 */
 export async function readFilePair(
-  source: SnapshotSource,
-  leftId: string,
-  rightId: string,
+  left: SideRef,
+  right: SideRef,
   relPath: string
 ): Promise<FileContentResponse> {
   const [leftTexts, rightTexts] = await Promise.all([
-    readFileTexts(source, leftId, [relPath]),
-    readFileTexts(source, rightId, [relPath]),
+    readFileTexts(left.source, left.snapshotId, [relPath]),
+    readFileTexts(right.source, right.snapshotId, [relPath]),
   ])
   return {
     path: relPath,
