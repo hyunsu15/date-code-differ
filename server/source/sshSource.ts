@@ -2,13 +2,15 @@ import { execFile, type ExecException } from 'node:child_process'
 import { safeRelativePath } from '../../src/lib/fileTypes.ts'
 import {
   buildSshArgs,
+  chunkPaths,
   formatSshCommand,
   joinRemote,
   listDirsCommand,
   listFilesCommand,
   parseDirListing,
   parseFileSizes,
-  readFileCommand,
+  parseFileStream,
+  readFilesCommand,
 } from './sshCommands.ts'
 import { decodeText } from './decode.ts'
 import { SourceError, type RawFile, type SnapshotSource } from './types.ts'
@@ -56,24 +58,59 @@ export class SshSource implements SnapshotSource {
     return parseDirListing(this.decode(out))
   }
 
-  async listFiles(snapshotId: string): Promise<RawFile[]> {
-    if (!isValidSnapshotId(snapshotId)) return []
-    const dir = joinRemote(this.conn.root, snapshotId)
-    // 명령이 빈 폴더에서도 정상 종료하므로(`|| true`), 여기서 실패 = 접속 문제다.
-    // 삼키면 접속 끊김이 "빈 폴더"로 보여 비교 결과가 조용히 비어 버린다.
-    const out = await this.run(listFilesCommand(dir))
-    return parseFileSizes(this.decode(out))
+  async listFilesIn(snapshotIds: readonly string[]): Promise<Map<string, RawFile[]>> {
+    const out = new Map<string, RawFile[]>()
+
+    for (const snapshotId of snapshotIds) {
+      if (!isValidSnapshotId(snapshotId)) continue
+      const dir = joinRemote(this.conn.root, snapshotId)
+      // 명령이 빈 폴더에서도 정상 종료하므로(`|| true`), 여기서 실패 = 접속 문제다.
+      // 삼키면 접속 끊김이 "빈 폴더"로 보여 비교 결과가 조용히 비어 버린다.
+      const listed = await this.run(listFilesCommand(dir))
+      out.set(
+        snapshotId,
+        parseFileSizes(this.decode(listed)).map((f) => ({ ...f, checksum: null }))
+      )
+    }
+
+    return out
   }
 
-  async readFile(snapshotId: string, relPath: string): Promise<string | null> {
-    if (!isValidSnapshotId(snapshotId)) return null
+  /**
+   * 요청한 파일들을 **경로 수가 아니라 명령 수에 비례하는** 왕복으로 읽는다.
+   * 한 번에 다 넣을 수 없는 양이면 `chunkPaths` 가 나눈 만큼만 접속한다.
+   */
+  async readFiles(snapshotId: string, relPaths: readonly string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>()
+    if (!isValidSnapshotId(snapshotId)) return out
 
-    const safe = safeRelativePath(relPath)
-    if (!safe) return null
+    // 정규화 전후를 짝지어 둔다 — 결과는 **호출부가 물어본 경로**로 돌려줘야 한다.
+    // 같은 파일을 두 번 물어보면 원격에는 한 번만 묻고 양쪽에 같은 본문을 준다.
+    const askedBySafe = new Map<string, string[]>()
+    for (const relPath of relPaths) {
+      const safe = safeRelativePath(relPath)
+      if (!safe) continue
+      const found = askedBySafe.get(safe)
+      if (found) found.push(relPath)
+      else askedBySafe.set(safe, [relPath])
+    }
+    if (askedBySafe.size === 0) return out
 
-    const target = joinRemote(this.conn.root, snapshotId, safe)
-    const out = await this.run(readFileCommand(target), { allowExitFailure: true })
-    return out === null ? null : this.decode(out)
+    const dir = joinRemote(this.conn.root, snapshotId)
+    for (const chunk of chunkPaths([...askedBySafe.keys()])) {
+      // 없는 파일은 출력 안에서 `@@-` 로 구분되므로, 여기서 실패 = 접속 문제다
+      const stream = await this.run(readFilesCommand(dir, chunk))
+      const bodies = parseFileStream(stream ?? new Uint8Array(), chunk.length)
+
+      chunk.forEach((safe, i) => {
+        const body = bodies[i]
+        if (!body) return
+        const text = decodeText(body, this.conn.encoding)
+        for (const asked of askedBySafe.get(safe) ?? []) out.set(asked, text)
+      })
+    }
+
+    return out
   }
 
   /** 원격 바이트를 설정한 인코딩으로 옮긴다. 파일명도 같은 규칙으로 읽는다 */

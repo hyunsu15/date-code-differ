@@ -4,7 +4,7 @@ import {
   parseExtensions,
   snapshotSortKey,
 } from '../src/lib/fileTypes.ts'
-import type { SnapshotSource } from './source/types.ts'
+import type { RawFile, SnapshotSource } from './source/types.ts'
 import type { ScanConfig, Snapshot } from '../src/types.ts'
 
 /**
@@ -34,6 +34,8 @@ export interface SnapshotFile {
   name: string
   packageName: string
   size: number
+  /** 본문을 읽지 않고 좌우가 같은지 가리기 위한 값. 소스가 못 내면 null */
+  checksum: string | null
 }
 
 export interface SnapshotScan {
@@ -65,17 +67,18 @@ export async function listSnapshots(
   key: string
 ): Promise<Snapshot[]> {
   const names = await source.listSnapshotDirs()
+  // 폴더마다 하나씩 물어보면 SSH 에서 왕복이 폴더 수만큼 늘어난다. 한 번에 받는다.
+  const scans = await scanSnapshots(source, cfg, key, names)
 
-  const items: Snapshot[] = []
-  for (const name of names) {
-    const { files } = await scanSnapshot(source, cfg, key, name)
-    items.push({
+  const items: Snapshot[] = names.map((name) => {
+    const files = scans.get(name)?.files ?? []
+    return {
       id: name,
       sortKey: snapshotSortKey(name),
       fileCount: files.length,
       packageCount: new Set(files.map((f) => f.packageName)).size,
-    })
-  }
+    }
+  })
 
   return items.sort((a, b) => {
     if (a.sortKey && b.sortKey) return b.sortKey.localeCompare(a.sortKey)
@@ -85,6 +88,39 @@ export async function listSnapshots(
   })
 }
 
+/**
+ * 여러 스냅샷의 비교 대상 파일을 한 번에 훑는다.
+ * **캐시에 없는 것만** 소스에 물어보므로, 두 번째부터는 왕복이 아예 없다.
+ */
+export async function scanSnapshots(
+  source: SnapshotSource,
+  cfg: RepositoryConfig,
+  key: string,
+  snapshotIds: readonly string[]
+): Promise<Map<string, SnapshotScan>> {
+  const out = new Map<string, SnapshotScan>()
+  const missing: string[] = []
+
+  for (const id of new Set(snapshotIds)) {
+    const cached = scanCache.get(`${key} ${id}`)
+    if (cached) out.set(id, cached)
+    else missing.push(id)
+  }
+
+  if (missing.length > 0) {
+    const listed = await source.listFilesIn(missing)
+    // 소스가 돌려주지 않은 스냅샷도 캐시에 빈 결과로 남긴다 —
+    // 없는 폴더를 물어볼 때마다 다시 접속하지 않기 위해서다
+    for (const id of missing) {
+      const scan = toScan(listed.get(id) ?? [], cfg)
+      scanCache.set(`${key} ${id}`, scan)
+      out.set(id, scan)
+    }
+  }
+
+  return out
+}
+
 /** 한 스냅샷 안의 비교 대상 파일을 상대 경로순으로 돌려준다 */
 export async function scanSnapshot(
   source: SnapshotSource,
@@ -92,13 +128,15 @@ export async function scanSnapshot(
   key: string,
   snapshotId: string
 ): Promise<SnapshotScan> {
-  const cacheKey = `${key} ${snapshotId}`
-  const cached = scanCache.get(cacheKey)
-  if (cached) return cached
+  const scans = await scanSnapshots(source, cfg, key, [snapshotId])
+  return scans.get(snapshotId) ?? { files: [], skipped: 0 }
+}
 
+/** 확장자·용량 필터를 적용하고 상대 경로순으로 정렬한다 */
+function toScan(raws: readonly RawFile[], cfg: RepositoryConfig): SnapshotScan {
   const scan: SnapshotScan = { files: [], skipped: 0 }
 
-  for (const raw of await source.listFiles(snapshotId)) {
+  for (const raw of raws) {
     if (!hasComparableExt(raw.path, cfg.extensions) || raw.size > cfg.maxFileBytes) {
       scan.skipped++
       continue
@@ -108,19 +146,22 @@ export async function scanSnapshot(
       name: raw.path.split('/').pop() ?? raw.path,
       packageName: packageOf(raw.path),
       size: raw.size,
+      checksum: raw.checksum,
     })
   }
 
   scan.files.sort((a, b) => a.path.localeCompare(b.path))
-  scanCache.set(cacheKey, scan)
   return scan
 }
 
-/** 파일 본문. 없거나 읽을 수 없으면 null */
-export function readFileText(
+/**
+ * 여러 파일의 본문을 한 번에. 없거나 읽을 수 없는 파일은 결과에서 빠진다.
+ * 빈 파일(`''`)과 없는 파일이 구분된다.
+ */
+export function readFileTexts(
   source: SnapshotSource,
   snapshotId: string,
-  relPath: string
-): Promise<string | null> {
-  return source.readFile(snapshotId, relPath)
+  relPaths: readonly string[]
+): Promise<Map<string, string>> {
+  return source.readFiles(snapshotId, relPaths)
 }

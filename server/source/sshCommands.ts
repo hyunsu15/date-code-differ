@@ -137,8 +137,59 @@ export const listDirsCommand = (root: string): string => `ls -1F -- ${quoteRemot
 export const listFilesCommand = (snapshotDir: string): string =>
   `cd ${quoteRemotePath(snapshotDir)} 2>/dev/null && find . -type f -exec wc -c {} + 2>/dev/null || true`
 
-/** 파일 본문 — 내려받지 않고 표준출력으로 읽는다 */
-export const readFileCommand = (filePath: string): string => `cat -- ${quoteRemotePath(filePath)}`
+/**
+ * 여러 파일의 본문을 **한 번의 접속으로** 읽는다.
+ *
+ * 접속을 재사용할 수 없으므로(README: Windows 기본 OpenSSH 는 다중화를 못 한다)
+ * 파일마다 `ssh` 를 띄우면 왕복이 파일 수에 비례한다. 그래서 한 명령에 몰아 넣는다.
+ *
+ * 출력은 **파일마다 `@@<바이트수>` 한 줄 + 그 바이트 수만큼의 본문**이다.
+ * 구분자를 본문에서 찾지 않고 **길이만큼 잘라 읽으므로** 내용이 무엇이든 안 깨진다
+ * (본문 안에 `@@` 가 있어도 상관없다). 없는 파일은 `@@-` 한 줄만 나온다 —
+ * 그래야 요청한 순서와 결과가 어긋나지 않는다. 경로는 출력에 싣지 않는다:
+ * 이름에 무엇이 들어 있든 파싱이 흔들릴 자리가 없다.
+ *
+ * `$` · 백틱 · 역슬래시를 쓰지 않는다. 이 명령이 오류 안내에 그대로 붙는데,
+ * 그 문자들이 있으면 `formatSshCommand` 가 escape 를 붙여 PowerShell 에 붙여넣을 수
+ * 없는 명령이 된다 (`quoteRemotePath` 주석과 같은 이유).
+ */
+const fileFragment = (relPath: string): string => {
+  // `./` 를 붙여 `-` 로 시작하는 이름이 옵션으로 읽히지 않게 한다
+  const quoted = shellQuote(`./${relPath}`)
+  return `if [ -f ${quoted} ]; then printf '@@'; wc -c < ${quoted}; cat -- ${quoted}; else echo '@@-'; fi`
+}
+
+export const readFilesCommand = (snapshotDir: string, relPaths: readonly string[]): string =>
+  `cd ${quoteRemotePath(snapshotDir)} 2>/dev/null || exit 0; ${relPaths.map(fileFragment).join('; ')}`
+
+/** 원격 명령 한 줄의 길이 상한. 가장 빡빡한 ARG_MAX(Solaris 1MB)를 넉넉히 밑돈다 */
+const MAX_COMMAND_CHARS = 60_000
+/** 한 번에 받을 파일 수 상한 — 응답이 `MAX_BUFFER` 를 넘지 않게 한다 (sshSource.ts) */
+const MAX_FILES_PER_COMMAND = 200
+
+/**
+ * `readFilesCommand` 에 넘길 수 있는 크기로 경로를 나눈다.
+ * 명령 길이(ARG_MAX)와 응답 크기(maxBuffer) 둘 다에 상한이 있어서 둘 다 본다.
+ */
+export function chunkPaths(relPaths: readonly string[]): string[][] {
+  const chunks: string[][] = []
+  let current: string[] = []
+  let length = 0
+
+  for (const relPath of relPaths) {
+    const added = fileFragment(relPath).length + 2 // 연결자 `; `
+    if (current.length > 0 && (current.length >= MAX_FILES_PER_COMMAND || length + added > MAX_COMMAND_CHARS)) {
+      chunks.push(current)
+      current = []
+      length = 0
+    }
+    current.push(relPath)
+    length += added
+  }
+
+  if (current.length > 0) chunks.push(current)
+  return chunks
+}
 
 
 
@@ -187,5 +238,50 @@ export function parseFileSizes(stdout: string): { path: string; size: number }[]
     const relative = found.slice(2)
     if (relative) out.push({ path: relative, size })
   }
+  return out
+}
+
+/**
+ * `readFilesCommand` 의 출력을 요청한 순서대로 파일 본문(바이트)으로 자른다.
+ *
+ * **바이트로 다룬다.** 헤더의 숫자는 바이트 수라, 문자열로 옮긴 뒤에는 (EUC-KR·UTF-8)
+ * 그 길이만큼 자를 수가 없다. 디코딩은 잘라낸 다음에 한다.
+ *
+ * 어긋나면 **그 자리에서 멈춘다.** 헤더가 `@@` 로 시작하지 않거나 남은 바이트가
+ * 모자라면 나머지는 전부 "없음"으로 둔다 — 어긋난 바이트를 본문으로 넘기면
+ * 엉뚱한 파일 내용이 diff 에 올라가 조용히 틀린 결과가 된다.
+ *
+ * @param count 요청한 파일 수. 반환 배열의 길이는 항상 이 값이다 (없는 파일은 null)
+ */
+export function parseFileStream(bytes: Uint8Array, count: number): (Uint8Array | null)[] {
+  const AT = 0x40 // '@'
+  const LF = 0x0a
+  const out: (Uint8Array | null)[] = []
+  let pos = 0
+
+  while (out.length < count) {
+    if (bytes[pos] !== AT || bytes[pos + 1] !== AT) break
+
+    let eol = pos + 2
+    while (eol < bytes.length && bytes[eol] !== LF) eol++
+    if (eol >= bytes.length) break
+
+    // `wc -c` 는 구현에 따라 숫자 앞에 공백을 채운다 (`      42`)
+    const header = new TextDecoder().decode(bytes.subarray(pos + 2, eol)).trim()
+    pos = eol + 1
+
+    if (header === '-') {
+      out.push(null)
+      continue
+    }
+
+    const size = Number(header)
+    if (!Number.isInteger(size) || size < 0 || pos + size > bytes.length) break
+
+    out.push(bytes.subarray(pos, pos + size))
+    pos += size
+  }
+
+  while (out.length < count) out.push(null)
   return out
 }

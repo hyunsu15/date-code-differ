@@ -39,16 +39,37 @@ export class LocalSource implements SnapshotSource {
     return entries.filter((e) => e.isDirectory() && !SKIP_DIR_RE.test(e.name)).map((e) => e.name)
   }
 
-  async listFiles(snapshotId: string): Promise<RawFile[]> {
-    const base = this.resolveSnapshot(snapshotId)
-    if (!base) return []
+  async listFilesIn(snapshotIds: readonly string[]): Promise<Map<string, RawFile[]>> {
+    const out = new Map<string, RawFile[]>()
 
-    const out: RawFile[] = []
-    await this.walk(base, '', out)
+    for (const snapshotId of snapshotIds) {
+      const base = this.resolveSnapshot(snapshotId)
+      if (!base) continue
+
+      const files: RawFile[] = []
+      await this.walk(base, '', files)
+      out.set(snapshotId, files)
+    }
+
     return out
   }
 
-  async readFile(snapshotId: string, relPath: string): Promise<string | null> {
+  /**
+   * 로컬은 왕복 비용이 없어 그냥 하나씩 읽는다.
+   * 인터페이스가 배치 모양인 것은 SSH 소스 사정이다 (`source/types.ts`).
+   */
+  async readFiles(snapshotId: string, relPaths: readonly string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>()
+
+    for (const relPath of relPaths) {
+      const text = await this.readOne(snapshotId, relPath)
+      if (text !== null) out.set(relPath, text)
+    }
+
+    return out
+  }
+
+  private async readOne(snapshotId: string, relPath: string): Promise<string | null> {
     const base = this.resolveSnapshot(snapshotId)
     if (!base) return null
 
@@ -99,7 +120,13 @@ export class LocalSource implements SnapshotSource {
       if (!entry.isFile()) continue // 심볼릭 링크 제외
 
       try {
-        out.push({ path: childRel, size: (await fs.stat(path.join(base, childRel))).size })
+        // checksum 은 null — 로컬에서 이걸 채우려면 파일을 통째로 한 번 더 읽어야 하는데,
+        // 왕복 비용이 없는 로컬에서는 그게 순수한 손해다 (`source/types.ts` 참고)
+        out.push({
+          path: childRel,
+          size: (await fs.stat(path.join(base, childRel))).size,
+          checksum: null,
+        })
       } catch {
         // 읽을 수 없는 파일은 목록에서 뺀다
       }

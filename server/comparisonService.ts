@@ -1,10 +1,11 @@
 import { buildFileDiff } from '../src/lib/diffEngine.ts'
 import { DEFAULT_OPTIONS } from '../src/lib/normalize.ts'
 import {
-  readFileText,
-  scanSnapshot,
+  readFileTexts,
+  scanSnapshots,
   type RepositoryConfig,
   type SnapshotFile,
+  type SnapshotScan,
 } from './snapshotRepository.ts'
 import type { SnapshotSource } from './source/types.ts'
 import type {
@@ -53,10 +54,10 @@ export async function compareSnapshots(
   const cached = comparisonCache.get(key)
   if (cached) return cached
 
-  const [leftScan, rightScan] = await Promise.all([
-    scanSnapshot(source, cfg, sourceKey, leftId),
-    scanSnapshot(source, cfg, sourceKey, rightId),
-  ])
+  const scans = await scanSnapshots(source, cfg, sourceKey, [leftId, rightId])
+  const empty: SnapshotScan = { files: [], skipped: 0 }
+  const leftScan = scans.get(leftId) ?? empty
+  const rightScan = scans.get(rightId) ?? empty
 
   const leftByPath = new Map(leftScan.files.map((f) => [f.path, f]))
   const rightByPath = new Map(rightScan.files.map((f) => [f.path, f]))
@@ -65,18 +66,26 @@ export async function compareSnapshots(
   )
 
   const files: ComparedFile[] = []
-  for (const relPath of allPaths) {
-    files.push(
-      await compareOne(
-        source,
-        leftId,
-        rightId,
-        relPath,
-        leftByPath.get(relPath),
-        rightByPath.get(relPath),
-        options
+  for (const batch of chunk(allPaths, COMPARE_BATCH)) {
+    // 본문을 **한 번에 몰아서** 받는다. 파일마다 따로 물어보면 SSH 왕복이 파일 수에 비례한다.
+    const [leftTexts, rightTexts] = await Promise.all([
+      readFileTexts(source, leftId, batch.filter((p) => leftByPath.has(p))),
+      readFileTexts(source, rightId, batch.filter((p) => rightByPath.has(p))),
+    ])
+
+    for (const relPath of batch) {
+      files.push(
+        compareOne(
+          relPath,
+          leftByPath.get(relPath),
+          rightByPath.get(relPath),
+          leftTexts.get(relPath) ?? null,
+          rightTexts.get(relPath) ?? null,
+          options
+        )
       )
-    )
+    }
+    // 본문은 여기서 버린다 — 통계만 남기므로 스냅샷 전체를 메모리에 쌓지 않는다
   }
 
   const response: ComparisonResponse = {
@@ -90,15 +99,31 @@ export async function compareSnapshots(
   return response
 }
 
-async function compareOne(
-  source: SnapshotSource,
-  leftId: string,
-  rightId: string,
+/**
+ * 한 번에 본문을 올려 두는 파일 수.
+ * 왕복은 줄이되 스냅샷 전체가 메모리에 쌓이지 않도록 여기서 끊는다
+ * (파일 하나가 `maxFileBytes` 까지 갈 수 있다).
+ */
+const COMPARE_BATCH = 200
+
+function chunk<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = []
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
+  return out
+}
+
+/**
+ * 한 파일의 좌우를 견준다. **읽기는 이미 끝난 상태**로 들어온다 —
+ * 여기서 소스를 건드리면 왕복이 파일 수만큼 늘어난다.
+ */
+function compareOne(
   relPath: string,
   left: SnapshotFile | undefined,
   right: SnapshotFile | undefined,
+  leftText: string | null,
+  rightText: string | null,
   options: DiffOptions
-): Promise<ComparedFile> {
+): ComparedFile {
   const meta = (right ?? left) as SnapshotFile
   const base = {
     path: relPath,
@@ -110,11 +135,6 @@ async function compareOne(
 
   // 한쪽에만 있는 파일도 빈 파일과 비교해 통계를 채운다.
   // 그래야 전체 합계와 패키지 요약이 실제 변경 줄 수를 반영한다.
-  const [leftText, rightText] = await Promise.all([
-    left ? readFileText(source, leftId, relPath) : Promise.resolve(null),
-    right ? readFileText(source, rightId, relPath) : Promise.resolve(null),
-  ])
-
   // 읽기 실패는 "내용 없음"으로 취급해 목록에서 사라지지 않게 한다
   const { stats } = buildFileDiff(leftText ?? '', rightText ?? '', options)
 
@@ -185,9 +205,13 @@ export async function readFilePair(
   rightId: string,
   relPath: string
 ): Promise<FileContentResponse> {
-  const [leftText, rightText] = await Promise.all([
-    readFileText(source, leftId, relPath),
-    readFileText(source, rightId, relPath),
+  const [leftTexts, rightTexts] = await Promise.all([
+    readFileTexts(source, leftId, [relPath]),
+    readFileTexts(source, rightId, [relPath]),
   ])
-  return { path: relPath, leftText, rightText }
+  return {
+    path: relPath,
+    leftText: leftTexts.get(relPath) ?? null,
+    rightText: rightTexts.get(relPath) ?? null,
+  }
 }

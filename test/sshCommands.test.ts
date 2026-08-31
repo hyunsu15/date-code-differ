@@ -10,7 +10,9 @@ import {
   parseDirListing,
   parseFileSizes,
   quoteRemotePath,
-  readFileCommand,
+  readFilesCommand,
+  chunkPaths,
+  parseFileStream,
   shellQuote,
   sshOptions,
 } from '../server/source/sshCommands.ts'
@@ -135,7 +137,7 @@ test('호스트 키를 자동 수락하지 않는다', () => {
 
 test('원격 명령에 경로가 인용된 채로 들어간다', () => {
   assert.equal(listDirsCommand('/home/a b'), "ls -1F -- '/home/a b'")
-  assert.equal(readFileCommand('/x/y.pc'), "cat -- '/x/y.pc'")
+  assert.ok(readFilesCommand('/x', ['y.pc']).includes("cat -- './y.pc'"))
   assert.ok(listFilesCommand('/x').startsWith("cd '/x' 2>/dev/null && find . -type f"))
 })
 
@@ -143,7 +145,7 @@ test('루트 존재 확인을 위한 별도 명령을 만들지 않는다', () =
   // 예전엔 `test -d` 로 한 번 더 붙었다. ssh 가 원격 명령의 종료 코드를 그대로 돌려주고
   // 자기 실패는 255 로 알리므로(ssh(1)), 날짜 목록을 읽는 `ls` 하나로 "폴더 없음"과
   // "접속 실패"가 갈린다 — 요청마다 접속이 한 번 줄었다.
-  const commands = [listDirsCommand('/x'), listFilesCommand('/x'), readFileCommand('/x/y.pc')]
+  const commands = [listDirsCommand('/x'), listFilesCommand('/x'), readFilesCommand('/x', ['y.pc'])]
   for (const cmd of commands) assert.equal(/test -d/.test(cmd), false, cmd)
 })
 
@@ -153,6 +155,88 @@ test('파일 목록은 GNU 전용 옵션을 쓰지 않는다', () => {
   assert.ok(!cmd.includes('-printf'))
   assert.ok(!cmd.includes('-maxdepth'))
   assert.ok(cmd.includes('-exec wc -c {} +'))
+})
+
+/* ---------------- 여러 파일 한 번에 읽기 ---------------- */
+
+test('파일 여러 개를 한 명령에 담는다 — 접속이 파일 수만큼 늘지 않는다', () => {
+  const cmd = readFilesCommand('/rel/d', ['ord/a.pc', 'pay/b.pc'])
+  assert.ok(cmd.startsWith("cd '/rel/d' 2>/dev/null || exit 0;"), cmd)
+  assert.ok(cmd.includes("cat -- './ord/a.pc'"), cmd)
+  assert.ok(cmd.includes("cat -- './pay/b.pc'"), cmd)
+})
+
+test('경로 앞에 ./ 를 붙인다 — 이름이 - 로 시작해도 옵션으로 읽히지 않는다', () => {
+  const cmd = readFilesCommand('/rel/d', ['-rf'])
+  assert.ok(cmd.includes("'./-rf'"), cmd)
+  assert.ok(!cmd.includes(" -rf"), cmd)
+})
+
+test('없는 파일도 자리를 남긴다 — 요청 순서와 결과가 어긋나면 안 된다', () => {
+  const cmd = readFilesCommand('/rel/d', ['a.pc'])
+  assert.ok(cmd.includes("if [ -f './a.pc' ]"), cmd)
+  assert.ok(cmd.includes("else echo '@@-'"), cmd)
+})
+
+test('본문 스트림을 요청한 순서대로 자른다', () => {
+  const stream = Buffer.from('@@5\nHELLO@@-\n@@0\n@@3\nabc', 'utf8')
+  const parts = parseFileStream(stream, 4)
+  assert.equal(parts.length, 4)
+  assert.equal(Buffer.from(parts[0]!).toString(), 'HELLO')
+  assert.equal(parts[1], null) // 없는 파일
+  assert.equal(Buffer.from(parts[2]!).toString(), '') // 빈 파일 — 없는 파일과 다르다
+  assert.equal(Buffer.from(parts[3]!).toString(), 'abc')
+})
+
+test('본문에 @@ 가 들어 있어도 안 깨진다 — 구분자를 찾지 않고 길이로 자른다', () => {
+  const body = '@@3\nnot a header'
+  const stream = Buffer.from(`@@${Buffer.byteLength(body)}\n${body}`, 'utf8')
+  assert.equal(Buffer.from(parseFileStream(stream, 1)[0]!).toString(), body)
+})
+
+test('wc -c 가 숫자 앞에 공백을 채워도 읽는다', () => {
+  const stream = Buffer.from('@@      2\nhi', 'utf8')
+  assert.equal(Buffer.from(parseFileStream(stream, 1)[0]!).toString(), 'hi')
+})
+
+test('바이트 수로 자르므로 한글(멀티바이트)이 밀리지 않는다', () => {
+  const body = Buffer.from('가나다', 'utf8') // 9바이트 3글자
+  const stream = Buffer.concat([
+    Buffer.from(`@@${body.length}\n`),
+    body,
+    Buffer.from('@@2\nok'),
+  ])
+  const parts = parseFileStream(stream, 2)
+  assert.equal(Buffer.from(parts[0]!).toString(), '가나다')
+  assert.equal(Buffer.from(parts[1]!).toString(), 'ok')
+})
+
+test('스트림이 어긋나면 그 뒤는 전부 없음으로 둔다 — 엉뚱한 내용을 넘기지 않는다', () => {
+  // 헤더가 말한 길이보다 실제 바이트가 모자란 경우
+  assert.deepEqual(parseFileStream(Buffer.from('@@99\nshort', 'utf8'), 2), [null, null])
+  // 헤더로 시작하지 않는 출력 (원격이 엉뚱한 말을 뱉은 경우)
+  assert.deepEqual(parseFileStream(Buffer.from('sh: command not found', 'utf8'), 3), [
+    null,
+    null,
+    null,
+  ])
+  // 접속이 끊겨 아무것도 못 받은 경우
+  assert.deepEqual(parseFileStream(new Uint8Array(), 2), [null, null])
+})
+
+test('명령이 길어지면 나눈다 — ARG_MAX 를 넘기면 원격 셸이 통째로 죽는다', () => {
+  const many = Array.from({ length: 1000 }, (_, i) => `pkg/file_${i}.pc`)
+  const chunks = chunkPaths(many)
+
+  assert.ok(chunks.length > 1, '1000개가 한 덩어리로 나오면 안 된다')
+  assert.deepEqual(chunks.flat(), many, '나누는 과정에서 빠지거나 순서가 바뀌면 안 된다')
+  for (const chunk of chunks) {
+    assert.ok(readFilesCommand('/rel/d', chunk).length < 100_000)
+  }
+})
+
+test('경로가 없으면 접속하지 않는다', () => {
+  assert.deepEqual(chunkPaths([]), [])
 })
 
 /* ---------------- 출력 파싱 ---------------- */
@@ -290,7 +374,11 @@ test('붙여넣을 수 있어야 한다 — 표시용 명령에 escape 가 생�
   // 원격으로 넘어가 원격 셸이 `unexpected EOF` 로 죽는다.
   const roots = ['~/release', '~deploy/release', '/data/스냅샷 모음', 'release', '/home/deploy/release']
   for (const root of roots) {
-    const commands = [listDirsCommand(root), listFilesCommand(root), readFileCommand(root)]
+    const commands = [
+      listDirsCommand(root),
+      listFilesCommand(root),
+      readFilesCommand(root, ['ord/a.pc', '한글 파일.pc']),
+    ]
     for (const command of commands) {
       const shown = formatSshCommand(buildSshArgs(CONN, command))
       assert.equal(shown.includes(BS), false, shown)
@@ -301,8 +389,9 @@ test('붙여넣을 수 있어야 한다 — 표시용 명령에 escape 가 생�
 
 test('원격 경로를 감싼 작은따옴표는 그대로 남는다', () => {
   // 큰따옴표 안의 작은따옴표는 셸이 건드리지 않는다 — 원격에서 같은 뜻이 되려면 살아 있어야 한다
-  const shown = formatSshCommand(buildSshArgs(CONN, readFileCommand('/x/y.pc')))
-  assert.ok(shown.endsWith(`"cat -- '/x/y.pc'"`), shown)
+  const shown = formatSshCommand(buildSshArgs(CONN, readFilesCommand('/x', ['y.pc'])))
+  assert.ok(shown.includes(`cd '/x'`), shown)
+  assert.ok(shown.includes(`cat -- './y.pc'`), shown)
 })
 
 test('표시용 명령에도 자격증명이 실리지 않는다', () => {

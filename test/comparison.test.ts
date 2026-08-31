@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { compareSnapshots, readFilePair } from '../server/comparisonService.ts'
 import {
   listSnapshots,
-  readFileText,
+  readFileTexts,
   readRepositoryConfig,
   scanSnapshot,
 } from '../server/snapshotRepository.ts'
@@ -211,7 +211,8 @@ test('UTF-8 로 고정하면 EUC-KR 파일이 깨진다 (설정이 실제로 먹
   const utf8Config: SourceConfig = { ...LOCAL, encoding: 'utf-8' }
   const utf8Source = createSource(utf8Config, projectRoot)
 
-  const text = await readFileText(utf8Source, '2026-08-01', 'pay/rpt_notice.pc')
+  const texts = await readFileTexts(utf8Source, '2026-08-01', ['pay/rpt_notice.pc'])
+  const text = texts.get('pay/rpt_notice.pc')
   assert.ok(text)
   assert.ok(text.includes('�'), 'UTF-8 로 읽으면 대체문자가 생겨야 한다')
   assert.ok(!text.includes('고객 공지'), '한글이 제대로 읽히면 안 된다')
@@ -265,15 +266,13 @@ test('경로 탈출 시도는 본문을 돌려주지 않는다', async () => {
     'C:/Windows/win.ini',
     '..',
   ]
+  const texts = await readFileTexts(source, '2026-08-01', attacks)
   for (const attack of attacks) {
-    assert.equal(
-      await readFileText(source, '2026-08-01', attack),
-      null,
-      `막혔어야 함: ${attack}`
-    )
+    assert.equal(texts.has(attack), false, `막혔어야 함: ${attack}`)
   }
 })
 
-test('없는 파일은 null', async () => {
-  assert.equal(await readFileText(source, '2026-08-01', 'nope/none.pc'), null)
+test('없는 파일은 결과에서 빠진다 — 빈 파일과 구분된다', async () => {
+  const texts = await readFileTexts(source, '2026-08-01', ['nope/none.pc'])
+  assert.equal(texts.has('nope/none.pc'), false)
 })
