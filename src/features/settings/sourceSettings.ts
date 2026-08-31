@@ -142,6 +142,23 @@ export function sourceParams(config: SourceConfig): Record<string, string> {
   return params
 }
 
+/**
+ * 비교 요청용 파라미터 — 좌우가 서로 다른 폴더를 볼 수 있게 **위치만** 갈라 보낸다.
+ *
+ * 서버·계정·인코딩은 좌우가 같다 (환경은 루트 아래 하위 폴더라는 전제다).
+ * 그래서 갈리는 값은 `root` 하나뿐이고, **다를 때만** `rightRoot` 를 덧붙인다 —
+ * 같은 위치를 볼 때는 URL 이 예전과 똑같이 유지된다.
+ */
+export function comparisonParams(
+  left: SourceConfig,
+  right: SourceConfig
+): Record<string, string> {
+  const params = sourceParams(left)
+  const rightRoot = right.root.trim()
+  if (rightRoot !== params.root) params.rightRoot = rightRoot
+  return params
+}
+
 /** 화면에 보여줄 한 줄 요약 */
 export function describeSource(config: SourceConfig): string {
   if (config.mode !== 'ssh') return config.root.trim() || '(폴더 미지정)'

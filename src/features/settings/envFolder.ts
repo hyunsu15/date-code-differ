@@ -2,10 +2,14 @@ import * as userConfig from '../../../change/config.ts'
 import type { EnvFolder, SourceConfig } from '../../types.ts'
 
 /**
- * 환경 폴더 — 운영 / 테스트 / 개발.
+ * 환경 폴더 — 운영 / 테스트.
  *
  * 환경이 루트 아래 폴더로 나뉘어 있을 때(`release/prod/20260801`) 어느 환경을 볼지 고른다.
  * 고르면 그 경로가 **루트 뒤에 붙는다** — `release` 를 고른 채 운영을 누르면 `release/prod`.
+ *
+ * **좌우가 각각 고른다.** 운영과 테스트는 배포 시점이 다르므로 같은 날짜 폴더가 양쪽에
+ * 다 있으리라는 보장이 없다 — 한쪽만 고르게 하면 "지금 운영과 테스트가 얼마나 벌어져
+ * 있나" 라는, 정작 제일 자주 묻는 질문에 답을 못 한다.
  *
  * 거르는 게 아니라 **위치를 바꾸는** 일이다. 그래서 서버에 따로 보낼 값이 없다:
  * 붙인 결과가 그냥 그 요청의 루트가 되고, 날짜 목록·비교·파일 본문이 모두 같은 곳을 본다.
@@ -57,17 +61,54 @@ export function parseEnvId(raw: string | null): string {
   return raw ? envById(raw).id : defaultEnvId()
 }
 
-export function loadEnvId(): string {
+/** 좌우가 각각 보고 있는 환경 */
+export interface EnvPair {
+  left: string
+  right: string
+}
+
+/**
+ * 저장값을 좌우 선택으로 바꾼다.
+ *
+ * 예전에는 환경 하나만 저장했다(`"prod"`). 그 값이 남아 있으면 **양쪽 다 그 환경**으로
+ * 읽는다 — 기존 사용자가 열었을 때 화면이 예전과 똑같이 보이는 게 맞다.
+ */
+export function parseEnvPair(raw: string | null): EnvPair {
+  if (!raw) return { left: defaultEnvId(), right: defaultEnvId() }
+
+  let parsed: unknown
   try {
-    return parseEnvId(localStorage.getItem(STORAGE_KEY))
+    parsed = JSON.parse(raw)
   } catch {
-    return defaultEnvId() // 저장소 접근 자체가 막힌 브라우저
+    // 예전 저장값 — 환경 id 문자열 하나
+    const id = parseEnvId(raw)
+    return { left: id, right: id }
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) {
+    const id = defaultEnvId()
+    return { left: id, right: id }
+  }
+
+  const value = parsed as Record<string, unknown>
+  return {
+    left: parseEnvId(typeof value.left === 'string' ? value.left : null),
+    right: parseEnvId(typeof value.right === 'string' ? value.right : null),
   }
 }
 
-export function saveEnvId(id: string): void {
+export function loadEnvPair(): EnvPair {
   try {
-    localStorage.setItem(STORAGE_KEY, id)
+    return parseEnvPair(localStorage.getItem(STORAGE_KEY))
+  } catch {
+    const id = defaultEnvId() // 저장소 접근 자체가 막힌 브라우저
+    return { left: id, right: id }
+  }
+}
+
+export function saveEnvPair(pair: EnvPair): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(pair))
   } catch {
     // 저장 실패해도 이번 세션 동작에는 지장이 없다
   }

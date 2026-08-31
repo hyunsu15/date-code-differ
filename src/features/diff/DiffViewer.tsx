@@ -308,8 +308,16 @@ interface DiffViewerProps {
   /** 오른쪽(이후 스냅샷) 본문. 그쪽에 없는 파일이면 null */
   rightText: string | null
   /** 패널 머리에 표시할 스냅샷 이름 */
+  /** 왼쪽 칸 이름 (스냅샷 id) */
   leftLabel: string
   rightLabel: string
+  /**
+   * 칸 앞에 붙는 짧은 표시.
+   * 좌우가 같은 곳이면 `이전`/`이후`, 환경이 갈리면 그 환경 이름이 온다 —
+   * 운영 9/1 을 테스트 8/1 과 견줄 때 왼쪽을 "이전" 이라 부르면 거짓말이 된다.
+   */
+  leftTag: string
+  rightTag: string
   viewMode: ViewMode
   context: number
   wrap: boolean
@@ -332,6 +340,8 @@ export default function DiffViewer({
   rightText,
   leftLabel,
   rightLabel,
+  leftTag,
+  rightTag,
   viewMode,
   context,
   wrap,
@@ -564,7 +574,7 @@ export default function DiffViewer({
     <div className="split-panes">
       <div className={cx('pane', wrapCls)} ref={paneA} data-side="left">
         <div className="pane-head left">
-          <span className="side-tag">이전</span>
+          <span className="side-tag">{leftTag}</span>
           {leftLabel}
           {leftText == null && <span className="pane-missing">이 스냅샷에 없음</span>}
         </div>
@@ -573,7 +583,7 @@ export default function DiffViewer({
 
       <div className={cx('pane', wrapCls)} ref={paneB} data-side="right">
         <div className="pane-head right">
-          <span className="side-tag">이후</span>
+          <span className="side-tag">{rightTag}</span>
           {rightLabel}
           {rightText == null && <span className="pane-missing">이 스냅샷에 없음</span>}
         </div>

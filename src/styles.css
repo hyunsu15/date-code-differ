@@ -166,7 +166,6 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .header-spacer { flex: 1; }
 
 /* 폴더 이름 접두사 고르기 (운영/테스트/개발) — 날짜 칸 바로 왼쪽 */
-.env-pick { flex: none; }
 
 .btn {
   display: inline-flex;
@@ -822,7 +821,6 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 @media (max-width: 1180px) {
   .root-name { display: none; }
   .header { gap: 8px; padding: 8px 12px; }
-  .env-pick .btn { padding: 4px 7px; }
 }
 
 @media (max-width: 1000px) {
@@ -898,6 +896,27 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 
 .pick.right .side-tag,
 .pane-head.right .side-tag { background: var(--add-bg); color: var(--add-fg); }
+
+/* 환경 선택 — 태그 자리에 그대로 들어간다 (좌우가 각각 고른다).
+   배경색은 위 .side-tag 규칙에서 오고, 여기서는 화살표만 얹는다 */
+.snapshot-picker .pick .env-select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+  padding-right: 15px;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 9px) 56%, calc(100% - 6px) 56%;
+  background-size: 3px 3px;
+  background-repeat: no-repeat;
+}
+
+.snapshot-picker .pick .env-select:focus { outline: none; }
+.snapshot-picker .pick .env-select:disabled { opacity: 0.5; cursor: not-allowed; }
+/* 펼친 목록은 OS 가 그리므로 색을 따로 준다 — 안 주면 다크 테마에서 흰 배경이 뜬다 */
+.snapshot-picker .pick .env-select option { background: var(--surface-2); color: var(--text); }
 
 .pane-head { display: flex; align-items: center; gap: 8px; }
 .pane-missing { color: var(--faint); font-weight: 400; font-style: italic; }

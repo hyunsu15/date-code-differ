@@ -12,8 +12,8 @@ import {
   ENV_CHOICES,
   envById,
   envPath,
-  loadEnvId,
-  saveEnvId,
+  loadEnvPair,
+  saveEnvPair,
   withEnv,
 } from './features/settings/envFolder.ts'
 import {
@@ -82,23 +82,37 @@ export default function App() {
   /* ---------------- 외부 폴더 / 스냅샷 ---------------- */
   const [sourceSelection, setSourceSelection] = useState<SourceSelection>(loadSourceSelection)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  // 환경 폴더(운영/테스트/개발). 목록은 change/config.ts 에서 온다
-  const [envId, setEnvId] = useState(loadEnvId)
+  /**
+   * 환경 폴더(운영/테스트) — **좌우가 각각 고른다.** 목록은 change/config.ts 에서 온다.
+   * 환경마다 배포 시점이 달라 같은 날짜가 양쪽에 다 있으리라는 보장이 없다.
+   */
+  const [envPair, setEnvPair] = useState(loadEnvPair)
+
+  const base = sourceSelection.source
+  const leftEnvPath = envPath(envPair.left)
+  const rightEnvPath = envPath(envPair.right)
+  /** 좌우가 같은 곳을 보는지 — 날짜 순서 규칙과 훑기 횟수가 여기서 갈린다 */
+  const sameSource = leftEnvPath === rightEnvPath
+
   /**
    * 실제로 읽을 위치 — 프리셋의 루트에 고른 환경 폴더를 붙인 것.
    *
-   * `useMemo` 로 **동일성을 붙잡아 둔다.** 아래 두 곳이 이 값을 의존성으로 쓰기 때문에
+   * `useMemo` 로 **동일성을 붙잡아 둔다.** 아래 여러 곳이 이 값을 의존성으로 쓰기 때문에
    * 렌더마다 새 객체가 나오면 목록을 끝없이 다시 읽는다.
+   * 같은 환경이면 **같은 객체**를 쓴다 — 그래야 "한 곳인지" 를 동일성으로 가릴 수 있다.
    */
-  const source = useMemo(
-    () => withEnv(sourceSelection.source, envPath(envId)),
-    [sourceSelection.source, envId]
+  const leftSource = useMemo(() => withEnv(base, leftEnvPath), [base, leftEnvPath])
+  const rightSource = useMemo(
+    () => (sameSource ? leftSource : withEnv(base, rightEnvPath)),
+    [sameSource, leftSource, base, rightEnvPath]
   )
+
   // 목록이 어느 위치에서 온 것인지 함께 들고 있어야, 위치를 바꾼 직후
   // 옛 목록으로 비교 요청이 나가는 것을 막을 수 있다.
-  const [loaded, setLoaded] = useState<LoadedSnapshots>(EMPTY_LOADED)
-  const { root, items: snapshots } = loaded
-  // 좌우는 "이후가 이전보다 최신" 이라는 규칙을 함께 지켜야 해서 한 상태로 묶는다
+  const [leftLoaded, setLeftLoaded] = useState<LoadedSnapshots>(EMPTY_LOADED)
+  const [rightLoaded, setRightLoaded] = useState<LoadedSnapshots>(EMPTY_LOADED)
+  const root = leftLoaded.root
+  // 좌우는 (같은 곳일 때) "이후가 이전보다 최신" 규칙을 함께 지켜야 해서 한 상태로 묶는다
   const [selection, setSelection] = useState(EMPTY_SELECTION)
   const { left, right } = selection
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -173,33 +187,64 @@ export default function App() {
      스냅샷 목록
      ================================================================ */
 
+  const snapshotSeq = useRef(0)
+
+  /**
+   * 좌우 날짜 목록을 읽는다.
+   * **같은 곳이면 한 번만** 물어본다 — 환경을 나누지 않고 쓰는 흔한 경우에서 요청이 늘지 않게.
+   */
   const loadSnapshots = useCallback(
-    async (config: SourceConfig, refresh: boolean): Promise<void> => {
+    async (
+      leftConfig: SourceConfig,
+      rightConfig: SourceConfig,
+      refresh: boolean
+    ): Promise<void> => {
+      const seq = ++snapshotSeq.current
       setLoadingSnapshots(true)
       setLoadError(null)
-      try {
-        const res = await fetchSnapshots(config, refresh)
-        setLoaded({ source: config, root: res.root, items: res.items })
-        // 고르고 있던 스냅샷이 남아 있으면 유지하고, 아니면 최근 두 개로 맞춘다
-        setSelection((prev) => normalizeSelection(res.items, prev))
-        setComparison(null)
-      } catch (e) {
-        // 실패해도 출처는 남긴다 — 그래야 옛 위치의 경로·목록이 화면에 남지 않는다
-        setLoaded({ source: config, root: '', items: [] })
-        setSelection(EMPTY_SELECTION)
-        setComparison(null)
-        setLoadError((e as Error).message)
-      } finally {
-        setLoadingSnapshots(false)
+
+      // 실패해도 출처는 남긴다 — 그래야 옛 위치의 경로·목록이 화면에 남지 않는다
+      const readOne = async (
+        config: SourceConfig
+      ): Promise<{ loaded: LoadedSnapshots; error: string | null }> => {
+        try {
+          const res = await fetchSnapshots(config, refresh)
+          return { loaded: { source: config, root: res.root, items: res.items }, error: null }
+        } catch (e) {
+          return { loaded: { source: config, root: '', items: [] }, error: (e as Error).message }
+        }
       }
+
+      const same = leftConfig === rightConfig
+      const [leftRes, rightRes] = same
+        ? await readOne(leftConfig).then((one) => [one, one] as const)
+        : await Promise.all([readOne(leftConfig), readOne(rightConfig)])
+
+      if (seq !== snapshotSeq.current) return // 환경을 빠르게 바꾼 경우 — 뒤늦은 응답은 버린다
+
+      setLeftLoaded(leftRes.loaded)
+      setRightLoaded(rightRes.loaded)
+      // 고르고 있던 스냅샷이 남아 있으면 유지하고, 아니면 규칙에 맞게 맞춘다
+      setSelection((prev) =>
+        normalizeSelection(prev, leftRes.loaded.items, rightRes.loaded.items, same)
+      )
+      setComparison(null)
+
+      // 한쪽만 실패할 수 있다. 어느 위치가 실패했는지 함께 보여야 고칠 곳을 안다
+      const failures = [
+        leftRes.error && (same ? leftRes.error : `${leftConfig.root}\n${leftRes.error}`),
+        !same && rightRes.error ? `${rightConfig.root}\n${rightRes.error}` : null,
+      ].filter((m): m is string => Boolean(m))
+      setLoadError(failures.length > 0 ? failures.join('\n\n') : null)
+      setLoadingSnapshots(false)
     },
     []
   )
 
   // 위치(프리셋·환경 폴더)가 바뀌면 목록을 통째로 다시 읽는다
   useEffect(() => {
-    void loadSnapshots(source, false)
-  }, [loadSnapshots, source])
+    void loadSnapshots(leftSource, rightSource, false)
+  }, [loadSnapshots, leftSource, rightSource])
 
   /* ================================================================
      좌우 비교 — 목록/통계는 서버가 만들어 준다 (본문은 안 받는다)
@@ -209,13 +254,13 @@ export default function App() {
 
   useEffect(() => {
     // 목록이 아직 다른 위치의 것이면 기다린다 — 옛 날짜로 새 위치를 물어보게 된다
-    if (loaded.source !== source || !left || !right) {
+    if (leftLoaded.source !== leftSource || rightLoaded.source !== rightSource || !left || !right) {
       setComparison(null)
       return
     }
     const seq = ++comparisonSeq.current
     setComparing(true)
-    void fetchComparison(source, left, right, options)
+    void fetchComparison(leftSource, rightSource, left, right, options)
       .then((res) => {
         if (seq !== comparisonSeq.current) return // 뒤늦게 도착한 응답은 버린다
         setComparison(res)
@@ -228,7 +273,7 @@ export default function App() {
       .finally(() => {
         if (seq === comparisonSeq.current) setComparing(false)
       })
-  }, [loaded.source, source, left, right, options])
+  }, [leftLoaded.source, rightLoaded.source, leftSource, rightSource, left, right, options])
 
   /* ================================================================
      목록 필터링 & 선택
@@ -274,7 +319,7 @@ export default function App() {
 
     const seq = ++contentSeq.current
     setContentError(null)
-    void fetchFileContent(source, left, right, path)
+    void fetchFileContent(leftSource, rightSource, left, right, path)
       .then((res) => {
         if (seq === contentSeq.current) setContent(res)
       })
@@ -283,7 +328,15 @@ export default function App() {
         setContent(null)
         setContentError(e.message)
       })
-  }, [source, selectedFile?.path, left, right, comparison?.left, comparison?.right])
+  }, [
+    leftSource,
+    rightSource,
+    selectedFile?.path,
+    left,
+    right,
+    comparison?.left,
+    comparison?.right,
+  ])
 
   /* ================================================================
      화면에 그릴 diff
@@ -369,10 +422,16 @@ export default function App() {
     setSettingsOpen(false)
   }, [])
 
-  /** 환경을 바꾸면 루트가 바뀌고, 그 위치로 목록을 다시 읽는다 (위 useEffect 가 위치를 보고 있다) */
-  const changeEnv = useCallback((id: string): void => {
-    setEnvId(id)
-    saveEnvId(id)
+  /**
+   * 한쪽 환경을 바꾸면 그쪽 루트가 바뀌고, 그 위치로 목록을 다시 읽는다
+   * (위 useEffect 가 위치를 보고 있다).
+   */
+  const changeEnv = useCallback((side: Side, id: string): void => {
+    setEnvPair((prev) => {
+      const next = side === 'left' ? { ...prev, left: id } : { ...prev, right: id }
+      saveEnvPair(next)
+      return next
+    })
   }, [])
 
   const toggleSync = useCallback(() => setSyncScroll((v) => !v), [])
@@ -389,10 +448,15 @@ export default function App() {
   const changeSide = useCallback(
     (side: Side, id: string) => {
       setSelection((prev) =>
-        normalizeSelection(snapshots, side === 'left' ? { ...prev, left: id } : { ...prev, right: id })
+        normalizeSelection(
+          side === 'left' ? { ...prev, left: id } : { ...prev, right: id },
+          leftLoaded.items,
+          rightLoaded.items,
+          sameSource
+        )
       )
     },
-    [snapshots]
+    [leftLoaded.items, rightLoaded.items, sameSource]
   )
 
   /* ---------------- 단축키 ---------------- */
@@ -466,9 +530,37 @@ export default function App() {
   /** 프리셋을 고른 상태면 그 이름을 헤더에 함께 보여준다 */
   const presetLabel = presetById(sourceSelection.presetId)?.label ?? null
 
-  // 비교하려면 날짜 폴더가 최소 두 개여야 한다 (이후는 이전보다 최신이어야 하므로)
+  /** 좌우 목록이 둘 다 지금 위치의 것인지 — 아니면 아직 읽는 중이다 */
+  const listsReady = leftLoaded.source === leftSource && rightLoaded.source === rightSource
+
+  /**
+   * 비교할 수 없는 상태.
+   * 같은 곳이면 날짜가 두 개여야 하고(이후는 이전보다 최신이어야 하므로),
+   * 다른 곳이면 각자 하나씩만 있으면 된다.
+   */
   const tooFewSnapshots =
-    !loadingSnapshots && !loadError && loaded.source === source && snapshots.length < 2
+    !loadingSnapshots &&
+    !loadError &&
+    listsReady &&
+    (sameSource
+      ? leftLoaded.items.length < 2
+      : leftLoaded.items.length === 0 || rightLoaded.items.length === 0)
+
+  /** 날짜 폴더가 하나도 없는 환경들 — 어디를 고쳐야 하는지 알려주기 위한 것 */
+  const emptyEnvs = [
+    leftLoaded.items.length === 0 ? envById(envPair.left).label : null,
+    !sameSource && rightLoaded.items.length === 0 ? envById(envPair.right).label : null,
+  ].filter((label): label is string => Boolean(label))
+
+  /**
+   * diff 칸에 붙는 짧은 표시.
+   * 같은 곳이면 `이전`/`이후` 지만, 환경이 갈리면 그 말이 틀린다 — 운영 9/1 을
+   * 테스트 8/1 과 견주는 것은 정상이고 그때 왼쪽은 "이전" 이 아니다. 환경 이름을 쓴다.
+   */
+  const sideTag = (envId: string, fallback: string): string =>
+    sameSource ? fallback : envById(envId).label || fallback
+  const leftTag = sideTag(envPair.left, '이전')
+  const rightTag = sideTag(envPair.right, '이후')
   const setOpt = (k: keyof DiffOptions) => (e: ChangeEvent<HTMLInputElement>) =>
     setOptions((o) => ({ ...o, [k]: e.target.checked }))
 
@@ -486,47 +578,35 @@ export default function App() {
         <div className="brand">
           <span className="dot">◧</span>
           <span>날짜별 소스 Diff</span>
-          <small title={`${presetLabel ? `${presetLabel} · ` : ''}${root || describeSource(source)}`}>
-            <span className={`src-tag ${source.mode}`}>
-              {source.mode === 'ssh' ? 'SSH' : '폴더'}
+          <small
+            title={[
+              presetLabel,
+              root || describeSource(leftSource),
+              // 좌우가 다른 곳이면 헤더 한 줄에 다 넣을 수 없다 — 툴팁에는 둘 다 보여준다
+              sameSource ? null : rightLoaded.root || describeSource(rightSource),
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          >
+            <span className={`src-tag ${leftSource.mode}`}>
+              {leftSource.mode === 'ssh' ? 'SSH' : '폴더'}
             </span>
             {presetLabel && <span className="preset-name">{presetLabel}</span>}
-            {root || describeSource(source)}
+            {root || describeSource(leftSource)}
           </small>
         </div>
 
         <div className="header-spacer" />
 
-        {/* 환경 폴더 — change/config.ts 에 없으면 이 자리가 아예 없다 */}
-        {ENV_CHOICES.length > 0 && (
-          <div
-            className="btn-group env-pick"
-            role="radiogroup"
-            aria-label="환경 폴더"
-            title="루트 아래 환경 폴더로 내려갑니다 (change/config.ts 의 ENV_FOLDERS)"
-          >
-            {ENV_CHOICES.map((choice) => (
-              <button
-                key={choice.id}
-                type="button"
-                role="radio"
-                aria-checked={envId === choice.id}
-                className={`btn sm ${envId === choice.id ? 'active' : ''}`}
-                onClick={() => changeEnv(choice.id)}
-                title={choice.description ?? `루트 아래 ${choice.path} 폴더`}
-              >
-                {choice.label}
-              </button>
-            ))}
-          </div>
-        )}
-
+        {/* 환경 선택은 좌우 칸 안에 있다 — 한쪽만 바꿔 운영↔테스트를 견줄 수 있어야 한다 */}
         <SnapshotPicker
-          snapshots={snapshots}
-          left={left}
-          right={right}
-          onChange={changeSide}
-          onRefresh={() => void loadSnapshots(source, true)}
+          left={{ envId: envPair.left, snapshots: leftLoaded.items, value: left }}
+          right={{ envId: envPair.right, snapshots: rightLoaded.items, value: right }}
+          envChoices={ENV_CHOICES}
+          sameSource={sameSource}
+          onChangeSnapshot={changeSide}
+          onChangeEnv={changeEnv}
+          onRefresh={() => void loadSnapshots(leftSource, rightSource, true)}
           loading={loadingSnapshots}
         />
 
@@ -556,12 +636,19 @@ export default function App() {
       )}
       {tooFewSnapshots && (
         <div className="banner warn">
-          {snapshots.length === 0
-            ? `${root} 안에 날짜 폴더가 없습니다.`
-            : `날짜 폴더가 1개(${snapshots[0]?.id})뿐입니다. 비교하려면 2개 이상 필요합니다.`}
+          {emptyEnvs.length > 0
+            ? `${emptyEnvs.join(' · ')} 안에 날짜 폴더가 없습니다.`
+            : sameSource
+              ? `날짜 폴더가 1개(${leftLoaded.items[0]?.id})뿐입니다. 같은 환경끼리 비교하려면 2개 이상 필요합니다.`
+              : '비교할 날짜를 고를 수 없습니다.'}
           {/* 환경 폴더로 내려간 걸 잊고 "폴더가 없다" 만 보면 원인을 찾기 어렵다 */}
-          {envPath(envId) &&
-            ` 지금은 ${envById(envId).label}(루트 아래 '${envPath(envId)}' 폴더) 안을 보고 있습니다.`}
+          {leftEnvPath &&
+            sameSource &&
+            ` 지금은 ${envById(envPair.left).label}(루트 아래 '${leftEnvPath}' 폴더) 안을 보고 있습니다.`}
+          {/* 같은 환경에 날짜가 하나뿐이어도, 다른 환경과는 견줄 수 있다 */}
+          {sameSource && ENV_CHOICES.length > 1 && leftLoaded.items.length === 1 && (
+            <> 다른 환경을 고르면 그쪽과 견줄 수 있습니다.</>
+          )}
         </div>
       )}
 
@@ -732,8 +819,8 @@ export default function App() {
                 stats={overall}
                 fileCount={comparison.files.length}
                 changedCount={changedCount}
-                leftLabel={left}
-                rightLabel={right}
+                leftLabel={`${leftTag} ${left}`}
+                rightLabel={`${rightTag} ${right}`}
                 loading={comparing}
               />
             ) : (
@@ -824,6 +911,8 @@ export default function App() {
                 rightText={content?.rightText ?? null}
                 leftLabel={left}
                 rightLabel={right}
+                leftTag={leftTag}
+                rightTag={rightTag}
                 viewMode={viewMode}
                 context={effectiveContext}
                 wrap={wrap}
@@ -857,7 +946,7 @@ export default function App() {
             <div className="empty">
               <h2>{comparing ? '비교하는 중…' : '비교할 파일을 고르세요'}</h2>
               <p>
-                위에서 이전/이후 날짜를 고르면 바뀐 패키지와 파일이 표시됩니다.
+                위에서 좌우의 환경·날짜를 고르면 바뀐 패키지와 파일이 표시됩니다.
                 <br />
                 왼쪽 목록에서 파일을 누르면 diff 가 열립니다.
               </p>

@@ -1,4 +1,4 @@
-import { sourceParams } from '../features/settings/sourceSettings.ts'
+import { comparisonParams, sourceParams } from '../features/settings/sourceSettings.ts'
 import type {
   ApiError,
   ComparisonResponse,
@@ -66,15 +66,19 @@ export function fetchSnapshots(
   })
 }
 
-/** 좌우 스냅샷 비교 — 패키지 요약 + 파일 목록 (본문 없음) */
+/**
+ * 좌우 스냅샷 비교 — 패키지 요약 + 파일 목록 (본문 없음).
+ * 좌우는 **서로 다른 위치**일 수 있다 (운영 ↔ 테스트).
+ */
 export function fetchComparison(
-  source: SourceConfig,
+  leftSource: SourceConfig,
+  rightSource: SourceConfig,
   left: string,
   right: string,
   options: DiffOptions
 ): Promise<ComparisonResponse> {
   return getJson<ComparisonResponse>('/comparisons', {
-    ...sourceParams(source),
+    ...comparisonParams(leftSource, rightSource),
     left,
     right,
     ...optionParams(options),
@@ -83,13 +87,14 @@ export function fetchComparison(
 
 /** 선택한 파일 한 건의 좌우 본문 */
 export function fetchFileContent(
-  source: SourceConfig,
+  leftSource: SourceConfig,
+  rightSource: SourceConfig,
   left: string,
   right: string,
   path: string
 ): Promise<FileContentResponse> {
   return getJson<FileContentResponse>('/comparisons/files', {
-    ...sourceParams(source),
+    ...comparisonParams(leftSource, rightSource),
     left,
     right,
     path,

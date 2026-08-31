@@ -1,6 +1,6 @@
-import { useEffect, useState, type KeyboardEvent } from 'react'
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { leftChoices, resolveSnapshotInput, rightChoices } from './selection.ts'
-import type { Side, Snapshot } from '../../types.ts'
+import type { EnvFolder, Side, Snapshot } from '../../types.ts'
 
 /**
  * 폴더명은 디스크에 있는 그대로 보여준다 (`20260801` 을 `2026-08-01` 로 고쳐 쓰지 않는다).
@@ -13,7 +13,10 @@ function hint(s: Snapshot): string {
 
 interface ComboProps {
   side: Side
-  tag: string
+  /** 칸 왼쪽에 붙는 표시 — 환경이 설정돼 있으면 환경 선택이 이 자리에 들어간다 */
+  tag: ReactNode
+  /** 스크린리더용 이름 (`tag` 가 선택 컨트롤일 수 있어 따로 받는다) */
+  label: string
   /** 지금 확정된 스냅샷 id */
   value: string
   choices: Snapshot[]
@@ -26,7 +29,7 @@ interface ComboProps {
  * 직접 타이핑하거나 목록에서 고를 수 있다 — 목록은 `<datalist>` 라 ↑↓ 로 훑을 수 있다.
  * 확정은 Enter·포커스 아웃·목록 선택 시에 일어나고, 해석할 수 없는 입력은 원래 값으로 되돌린다.
  */
-function SnapshotCombo({ side, tag, value, choices, onCommit, disabled }: ComboProps) {
+function SnapshotCombo({ side, tag, label, value, choices, onCommit, disabled }: ComboProps) {
   const [draft, setDraft] = useState(value)
   const [typing, setTyping] = useState(false)
 
@@ -77,7 +80,7 @@ function SnapshotCombo({ side, tag, value, choices, onCommit, disabled }: ComboP
 
   return (
     <div className={`pick ${side}${unresolved ? ' invalid' : ''}`}>
-      <span className="side-tag">{tag}</span>
+      {tag}
       <input
         type="text"
         list={listId}
@@ -88,7 +91,7 @@ function SnapshotCombo({ side, tag, value, choices, onCommit, disabled }: ComboP
         onFocus={(e) => e.currentTarget.select()}
         disabled={disabled}
         placeholder={disabled ? '— 없음 —' : '날짜 입력'}
-        aria-label={`${tag} 스냅샷`}
+        aria-label={label}
         aria-invalid={unresolved}
         autoComplete="off"
         spellCheck={false}
@@ -104,39 +107,91 @@ function SnapshotCombo({ side, tag, value, choices, onCommit, disabled }: ComboP
   )
 }
 
-interface SnapshotPickerProps {
+/** 한쪽이 보고 있는 곳 */
+export interface PickerSide {
+  /** 고른 환경 폴더 id. 환경 설정이 없으면 빈 문자열 */
+  envId: string
+  /** 그 환경에서 읽어온 날짜 폴더들 */
   snapshots: Snapshot[]
-  left: string
-  right: string
-  onChange: (side: Side, id: string) => void
+  /** 지금 고른 날짜 폴더 */
+  value: string
+}
+
+interface SnapshotPickerProps {
+  left: PickerSide
+  right: PickerSide
+  /** 환경 선택지. 비어 있으면 환경 고르는 자리가 아예 없다 (`change/config.ts` 의 `ENV_FOLDERS`) */
+  envChoices: EnvFolder[]
+  /** 좌우가 같은 곳을 보는지 — 날짜 후보와 순서 규칙이 여기서 갈린다 */
+  sameSource: boolean
+  onChangeSnapshot: (side: Side, id: string) => void
+  onChangeEnv: (side: Side, envId: string) => void
   onRefresh: () => void
   /** 스냅샷 목록 자체를 다시 읽는 중 — 비교 중에는 입력을 막지 않는다 */
   loading: boolean
 }
 
 /**
- * 비교할 두 날짜 폴더를 고른다.
- * `이후` 후보에는 `이전` 보다 최신인 날짜만 담긴다 — 거꾸로 된 비교는 아예 만들어지지 않는다.
+ * 비교할 두 곳을 고른다 — **좌우가 각각 (환경, 날짜)** 를 고른다.
+ *
+ * 환경이 같으면 예전 그대로 `이후` 후보에 `이전` 보다 최신인 날짜만 담긴다.
+ * 환경이 다르면 그 규칙을 걸지 않는다 — 운영 9/1 과 테스트 8/15 는 거꾸로 된 비교가
+ * 아니라 "테스트가 뒤처져 있다" 는 정상적인 질문이다.
  */
 export default function SnapshotPicker({
-  snapshots,
   left,
   right,
-  onChange,
+  envChoices,
+  sameSource,
+  onChangeSnapshot,
+  onChangeEnv,
   onRefresh,
   loading,
 }: SnapshotPickerProps) {
-  const comparable = snapshots.length >= 2
+  // 같은 곳이면 두 날짜가 필요하고, 다른 곳이면 각자 하나씩 있으면 된다
+  const comparable = sameSource
+    ? left.snapshots.length >= 2
+    : left.snapshots.length > 0 && right.snapshots.length > 0
   const disabled = !comparable || loading
+
+  /**
+   * 환경 선택은 **날짜가 없어도 열어 둔다.**
+   * 고른 환경에 날짜 폴더가 없을 때 여기까지 잠기면 다른 환경으로 빠져나갈 수가 없다.
+   */
+  const envTag = (side: Side, state: PickerSide): ReactNode => (
+    <select
+      className="side-tag env-select"
+      value={state.envId}
+      onChange={(e) => onChangeEnv(side, e.target.value)}
+      disabled={loading}
+      aria-label={`${side === 'left' ? '기준' : '대상'} 환경`}
+      title="루트 아래 환경 폴더 (change/config.ts 의 ENV_FOLDERS)"
+    >
+      {envChoices.map((choice) => (
+        <option key={choice.id} value={choice.id}>
+          {choice.label}
+        </option>
+      ))}
+    </select>
+  )
+
+  /** 환경 설정이 없으면 예전처럼 이전/이후 라벨만 붙는다 */
+  const tagFor = (side: Side, state: PickerSide): ReactNode =>
+    envChoices.length > 0 ? (
+      envTag(side, state)
+    ) : (
+      <span className="side-tag">{side === 'left' ? '이전' : '이후'}</span>
+    )
 
   return (
     <div className="snapshot-picker">
       <SnapshotCombo
         side="left"
-        tag="이전"
-        value={left}
-        choices={leftChoices(snapshots)}
-        onCommit={(id) => onChange('left', id)}
+        tag={tagFor('left', left)}
+        label="기준 날짜"
+        value={left.value}
+        choices={leftChoices(left.snapshots, sameSource)}
+        onCommit={(id) => onChangeSnapshot('left', id)}
         disabled={disabled}
       />
 
@@ -146,10 +201,11 @@ export default function SnapshotPicker({
 
       <SnapshotCombo
         side="right"
-        tag="이후"
-        value={right}
-        choices={rightChoices(snapshots, left)}
-        onCommit={(id) => onChange('right', id)}
+        tag={tagFor('right', right)}
+        label="대상 날짜"
+        value={right.value}
+        choices={rightChoices(right.snapshots, left.value, sameSource)}
+        onCommit={(id) => onChangeSnapshot('right', id)}
         disabled={disabled}
       />
 
