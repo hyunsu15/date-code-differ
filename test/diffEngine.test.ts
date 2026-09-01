@@ -232,6 +232,31 @@ test('문자열 안의 주석 기호는 주석이 아니다', () => {
   assert.equal(on.stats.removed, 1)
 })
 
+test('한 줄 주석 안의 블록 기호는 블록을 열지 않는다', () => {
+  const a = '// 여기 /* 는 주석 시작이 아니다\nint x = 1;\n'
+  const b = 'int x = 1;\n'
+  const on = buildFileDiff(a, b, O({ ignoreComments: true }))
+  assert.equal(on.stats.ignored, 1, '첫 줄만 주석 — 뒤가 주석에 먹히면 안 된다')
+  assert.equal(on.stats.changedLines, 0)
+})
+
+test('블록 주석은 겹치지 않는다 — 첫 닫힘에서 끝난다 (C 규칙)', () => {
+  // `/* a /* b */` 까지가 주석이고 `c */` 는 코드로 남는다
+  const on = buildFileDiff('/* a /* b */ c */\n', '', O({ ignoreComments: true }))
+  assert.equal(on.stats.ignored, 0)
+  assert.equal(on.stats.removed, 1)
+})
+
+test('줄 끝 역슬래시는 한 줄 주석을 다음 줄까지 끌고 간다 (C 규칙)', () => {
+  const bs = String.fromCharCode(92)
+  const a = `// 주석 이어짐 ${bs}\n여전히 주석이다\nint x = 1;\n`
+  const b = 'int x = 1;\n'
+  const on = buildFileDiff(a, b, O({ ignoreComments: true }))
+  // 컴파일러가 두 줄을 한 주석으로 읽으므로 여기서도 그렇게 읽는다
+  assert.equal(on.stats.ignored, 2)
+  assert.equal(on.stats.changedLines, 0)
+})
+
 test('작성자 줄을 무시한다 — 이름만 다르면 같은 파일로 본다', () => {
   const a = ' * 작성자 : 홍길동\nint x = 1;\n'
   const b = ' * 작성자 : 김철수\nint x = 1;\n'
@@ -255,6 +280,31 @@ test('@author · 수정자 표기도 잡는다', () => {
   const on = buildFileDiff(a, b, O({ ignoreAuthor: true }))
   assert.equal(on.stats.ignored, 2)
   assert.equal(on.stats.changedLines, 0)
+})
+
+test('상자 테두리 안에 있어도 잡는다', () => {
+  const a = '/*==== 작성자 : 홍길동 ====*/\nint x = 1;\n'
+  const b = '/*==== 작성자 : 김철수 ====*/\nint x = 1;\n'
+  // 주석 무시는 꺼 둔다 — 작성자 규칙만으로 잡히는지 봐야 한다
+  const on = buildFileDiff(a, b, O({ ignoreAuthor: true }))
+  assert.equal(on.stats.ignored, 1)
+  assert.equal(on.stats.changedLines, 0)
+})
+
+test('앞에 수식어가 붙어도 잡는다 (최종수정자 · 최초 작성자)', () => {
+  const a = ' * 최종수정자 : 김철수\n * 최초 작성자 : 홍길동\nint x = 1;\n'
+  const b = 'int x = 1;\n'
+  const on = buildFileDiff(a, b, O({ ignoreAuthor: true }))
+  assert.equal(on.stats.ignored, 2)
+  assert.equal(on.stats.changedLines, 0)
+})
+
+test('작성일은 건드리지 않는다 — 이름 줄만 뺀다', () => {
+  const a = ' * 작성일 : 2026-05-12\nint x = 1;\n'
+  const b = ' * 작성일 : 2026-08-25\nint x = 1;\n'
+  const on = buildFileDiff(a, b, O({ ignoreAuthor: true }))
+  assert.equal(on.stats.ignored, 0)
+  assert.equal(on.stats.changedLines, 1)
 })
 
 test('작성자 무시가 코드 줄을 건드리지는 않는다', () => {
