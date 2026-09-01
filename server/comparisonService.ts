@@ -1,5 +1,6 @@
 import { buildFileDiff } from '../src/lib/diffEngine.ts'
 import { DEFAULT_OPTIONS } from '../src/lib/normalize.ts'
+import { NO_EXCLUDE, type ExcludeState } from './excludeRules.ts'
 import {
   readFileTexts,
   scanSnapshots,
@@ -91,15 +92,25 @@ async function scanBothSides(
   ]
 }
 
+/**
+ * 좌우 스냅샷 비교.
+ *
+ * 제외 목록은 **비교가 끝난 결과 위에** 얹는다 (`applyExclusions`). 훑기에서 걸러 내면
+ * 두 가지를 잃는다 — 접어 둔 자리에 변경이 들어왔는지 알 수 없게 되고(이 도구에서는
+ * 그게 사고로 이어진다), 규칙을 한 줄 고칠 때마다 캐시가 갈려 폴더를 다시 훑게 된다.
+ * 대신 읽기·diff 비용은 줄지 않는다 — 접기는 **목록을 정리하는 일**이지 비교를 아끼는
+ * 일이 아니다. 아예 읽지 않으려면 `change/config.ts` 의 `SCAN` 으로 대상 자체를 좁힌다.
+ */
 export async function compareSnapshots(
   cfg: RepositoryConfig,
   left: SideRef,
   right: SideRef,
-  options: DiffOptions = DEFAULT_OPTIONS
+  options: DiffOptions = DEFAULT_OPTIONS,
+  exclude: ExcludeState = NO_EXCLUDE
 ): Promise<ComparisonResponse> {
   const key = cacheKey(left, right, options)
   const cached = comparisonCache.get(key)
-  if (cached) return cached
+  if (cached) return applyExclusions(cached, exclude)
 
   const [leftScan, rightScan] = await scanBothSides(cfg, left, right)
 
@@ -154,12 +165,53 @@ export async function compareSnapshots(
   const response: ComparisonResponse = {
     left: left.snapshotId,
     right: right.snapshotId,
-    packages: buildPackageChanges(files, leftScan.files, rightScan.files),
+    packages: buildPackageChanges(files),
     files,
     skipped: leftScan.skipped + rightScan.skipped,
+    exclude: { file: '', rules: 0, files: 0, changed: 0, error: null },
   }
+  // 캐시에는 **접기 전** 결과를 둔다 — 규칙 파일을 고쳐도 다시 비교하지 않아도 되게
   comparisonCache.set(key, response)
-  return response
+  return applyExclusions(response, exclude)
+}
+
+/**
+ * 비교 결과에 제외 목록을 얹는다. **순수 함수** — 받은 응답을 고치지 않는다
+ * (캐시에 든 결과를 그대로 재사용하므로 여기서 손대면 다음 요청이 오염된다).
+ *
+ * 걸린 파일은 목록에 **남긴 채** 표시만 한다. 대신 패키지 요약은 접어 둔 것을 빼고
+ * 다시 만든다 — 사이드바에 "12개 변경" 이라 떠 있는데 목록에는 9개만 보이면
+ * 사용자는 나머지 3개를 찾아 헤맨다.
+ *
+ * 규칙이 하나도 없고 오류도 없으면 **받은 응답을 그대로** 돌려준다 (기본 경로에서
+ * 배열을 두 번 훑지 않는다).
+ */
+export function applyExclusions(
+  response: ComparisonResponse,
+  exclude: ExcludeState
+): ComparisonResponse {
+  if (exclude.list.isEmpty && exclude.error === null && !exclude.file) return response
+
+  const files = response.files.map((file) => {
+    const rule = exclude.list.matches(file.path)
+    return rule === null ? file : { ...file, excluded: true, excludedBy: rule }
+  })
+
+  const folded = files.filter((f) => f.excluded)
+
+  return {
+    ...response,
+    files,
+    packages: buildPackageChanges(files.filter((f) => !f.excluded)),
+    exclude: {
+      file: exclude.file,
+      rules: exclude.list.size,
+      files: folded.length,
+      // 접어 둔 자리에 들어온 변경 — 이 숫자를 눈에 띄게 알리는 것이 이 기능의 안전장치다
+      changed: folded.filter((f) => f.status !== 'same').length,
+      error: exclude.error,
+    },
+  }
 }
 
 /**
@@ -206,6 +258,9 @@ function compareOne(
     packageName: meta.packageName,
     leftSize: left?.size ?? null,
     rightSize: right?.size ?? null,
+    // 접기는 비교가 끝난 뒤에 얹는다 (`applyExclusions`) — 여기서는 늘 펼친 상태다
+    excluded: false,
+    excludedBy: null,
   }
 
   // 한쪽에만 있는 파일도 빈 파일과 비교해 통계를 채운다.
@@ -227,14 +282,19 @@ function compareOne(
 /**
  * 패키지(= 날짜 폴더 바로 아래 디렉터리) 단위 요약.
  * 한쪽에만 존재하는 패키지는 파일 상태와 무관하게 신규/삭제로 본다.
+ *
+ * **받은 파일들만 보고 만든다.** 어느 쪽에 있던 패키지인지는 파일 상태로 알 수 있어
+ * (`added` 는 오른쪽에만, `removed` 는 왼쪽에만) 훑기 결과를 따로 받을 필요가 없다.
+ * 그래야 접어 둔 파일을 뺀 뒤 **같은 함수로 다시** 만들 수 있다 — 요약과 화면에 보이는
+ * 목록이 어긋나지 않게 하는 것이 이 기능에서 제일 틀리기 쉬운 자리다.
  */
-function buildPackageChanges(
-  files: readonly ComparedFile[],
-  leftFiles: readonly SnapshotFile[],
-  rightFiles: readonly SnapshotFile[]
-): PackageChange[] {
-  const leftPackages = new Set(leftFiles.map((f) => f.packageName))
-  const rightPackages = new Set(rightFiles.map((f) => f.packageName))
+function buildPackageChanges(files: readonly ComparedFile[]): PackageChange[] {
+  const leftPackages = new Set(
+    files.filter((f) => f.status !== 'added').map((f) => f.packageName)
+  )
+  const rightPackages = new Set(
+    files.filter((f) => f.status !== 'removed').map((f) => f.packageName)
+  )
 
   const byName = new Map<string, PackageChange>()
   const ensure = (name: string): PackageChange => {

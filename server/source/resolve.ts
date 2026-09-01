@@ -28,14 +28,19 @@ export function createSource(config: SourceConfig, projectRoot: string): Snapsho
       'LOCAL_ROOT_EMPTY'
     )
   }
-  // `./sample-code` 같은 상대 경로는 프로젝트 폴더 기준으로 푼다
-  return new LocalSource(path.resolve(projectRoot, root), config.encoding)
+  // `./sample-code` 같은 상대 경로는 프로젝트 폴더 기준으로 푼다.
+  // 제외 목록 파일도 같은 기준을 쓰므로 그 기준을 함께 넘긴다 (루트 밖일 수 있다).
+  return new LocalSource(path.resolve(projectRoot, root), config.encoding, projectRoot)
 }
 
 /**
  * 캐시 키 — 소스가 다르면 같은 날짜 이름이라도 다른 결과다.
  * 인코딩이 다르면 같은 파일도 다른 내용으로 읽히므로 함께 넣는다.
  * 개인키는 **경로**만 들어간다 (키 내용이나 비밀번호는 애초에 다루지 않는다).
+ *
+ * 제외 목록 파일(`excludeFile`)은 **넣지 않는다.** 훑기 결과도 비교 결과도 제외와
+ * 무관하게 만들고 접기는 그 위에 얹기 때문이다 — 넣으면 규칙을 고칠 때마다 캐시가
+ * 통째로 갈려 같은 폴더를 다시 훑게 된다 (`server/excludeRules.ts`).
  */
 export function sourceKey(config: SourceConfig, projectRoot: string): string {
   if (config.mode === 'ssh') {

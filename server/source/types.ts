@@ -37,6 +37,18 @@ export interface SnapshotSource {
    * 없거나 읽을 수 없는 파일은 결과에서 빠진다 — 빈 파일(`''`)과 구분된다.
    */
   readFiles(snapshotId: string, relPaths: readonly string[]): Promise<Map<string, string>>
+
+  /**
+   * **스냅샷 밖에 있는** 텍스트 파일 한 건 (제외 목록 등).
+   *
+   * 경로를 푸는 방식은 구현마다 다르다 — 로컬은 상대 경로를 프로젝트 폴더 기준으로 풀고,
+   * SSH 는 원격 경로를 그대로 쓴다. 여기서만 배치 모양이 아닌 이유는 이 파일이
+   * 비교 한 번에 **하나뿐**이라 왕복을 묶을 것이 없어서다.
+   *
+   * @returns 본문. 파일이 없으면 null — 빈 파일(`''`)과 구분된다
+   *          (읽을 수는 있는데 실패한 경우는 `SourceError` 를 던진다)
+   */
+  readTextFile(path: string): Promise<string | null>
 }
 
 /** 접속·경로 문제를 화면에 그대로 보여주기 위한 오류 */

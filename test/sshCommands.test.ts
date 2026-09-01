@@ -369,11 +369,17 @@ test('파일이 없는 스냅샷도 빈 목록으로 자리를 남긴다', () =>
 const q = (s: string): URLSearchParams => new URLSearchParams(s)
 
 test('mode 가 없으면 로컬로 본다 (설정 저장 전에도 동작해야 한다)', () => {
-  assert.deepEqual(readSourceConfig(q('')), { mode: 'local', root: '', encoding: 'auto' })
+  assert.deepEqual(readSourceConfig(q('')), {
+    mode: 'local',
+    root: '',
+    encoding: 'auto',
+    excludeFile: '',
+  })
   assert.deepEqual(readSourceConfig(q('root=D%3A%2Frel')), {
     mode: 'local',
     root: 'D:/rel',
     encoding: 'auto',
+    excludeFile: '',
   })
 })
 
@@ -397,6 +403,7 @@ test('ssh 파라미터를 설정으로 읽는다', () => {
     identityFile: '/k/id',
     root: '/rel',
     encoding: 'auto',
+    excludeFile: '',
   })
 })
 

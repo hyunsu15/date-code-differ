@@ -184,14 +184,23 @@ export function chunkSnapshotIds(snapshotIds: readonly string[]): string[][] {
  * 그 문자들이 있으면 `formatSshCommand` 가 escape 를 붙여 PowerShell 에 붙여넣을 수
  * 없는 명령이 된다 (`quoteRemotePath` 주석과 같은 이유).
  */
-const fileFragment = (relPath: string): string => {
-  // `./` 를 붙여 `-` 로 시작하는 이름이 옵션으로 읽히지 않게 한다
-  const quoted = shellQuote(`./${relPath}`)
-  return `if [ -f ${quoted} ]; then printf '@@'; wc -c < ${quoted}; cat -- ${quoted}; else echo '@@-'; fi`
-}
+const fileFragment = (quoted: string): string =>
+  `if [ -f ${quoted} ]; then printf '@@'; wc -c < ${quoted}; cat -- ${quoted}; else echo '@@-'; fi`
+
+/** 스냅샷 안의 상대 경로용. `./` 를 붙여 `-` 로 시작하는 이름이 옵션으로 읽히지 않게 한다 */
+const snapshotFragment = (relPath: string): string => fileFragment(shellQuote(`./${relPath}`))
 
 export const readFilesCommand = (snapshotDir: string, relPaths: readonly string[]): string =>
-  `cd ${quoteRemotePath(snapshotDir)} 2>/dev/null || exit 0; ${relPaths.map(fileFragment).join('; ')}`
+  `cd ${quoteRemotePath(snapshotDir)} 2>/dev/null || exit 0; ${relPaths.map(snapshotFragment).join('; ')}`
+
+/**
+ * **스냅샷 밖의** 파일 한 건 (제외 목록). 출력 형식은 위와 같아 `parseFileStream` 이 그대로 읽는다.
+ *
+ * 여기만 `cd` 없이 경로를 통째로 넘긴다 — 이 파일은 날짜 폴더 밖에 있고,
+ * 홈 기준(`~/release/exclude.txt`)일 수도 있어 `quoteRemotePath` 에 맡긴다.
+ */
+export const readTextFileCommand = (remotePath: string): string =>
+  fileFragment(quoteRemotePath(remotePath))
 
 /** 원격 명령 한 줄의 길이 상한. 가장 빡빡한 ARG_MAX(Solaris 1MB)를 넉넉히 밑돈다 */
 const MAX_COMMAND_CHARS = 60_000
@@ -208,7 +217,7 @@ export function chunkPaths(relPaths: readonly string[]): string[][] {
   let length = 0
 
   for (const relPath of relPaths) {
-    const added = fileFragment(relPath).length + 2 // 연결자 `; `
+    const added = snapshotFragment(relPath).length + 2 // 연결자 `; `
     if (current.length > 0 && (current.length >= MAX_FILES_PER_COMMAND || length + added > MAX_COMMAND_CHARS)) {
       chunks.push(current)
       current = []

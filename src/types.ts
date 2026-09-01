@@ -26,6 +26,19 @@ interface SourceBase {
   /** 날짜 폴더들의 부모 경로 */
   root: string
   encoding: TextEncodingName
+  /**
+   * 비교에서 접어 둘 파일 목록이 적힌 텍스트 파일의 경로. 비우면 접지 않는다.
+   *
+   * **`root` 와 무관하게 푼다.** 환경 폴더(운영/테스트)는 `root` 뒤에 붙으므로 좌우가
+   * 서로 다른 루트를 보는데, 제외 규칙까지 갈라지면 "운영에서는 접히고 테스트에서는
+   * 안 접히는" 목록이 나온다. 한 비교에는 한 목록이다.
+   *
+   * 로컬은 상대 경로를 프로젝트 폴더 기준으로 풀고(`root` 와 같은 규칙), SSH 는 원격
+   * 경로를 그대로 쓴다 (`~/release/exclude.txt` 처럼 홈 기준도 된다).
+   *
+   * 형식과 판정 규칙은 `src/lib/excludeList.ts` 가 갖고 있다.
+   */
+  excludeFile?: string
 }
 
 export interface LocalSourceConfig extends SourceBase {
@@ -59,6 +72,7 @@ export const DEFAULT_LOCAL_SOURCE: LocalSourceConfig = {
   mode: 'local',
   root: '',
   encoding: 'auto',
+  excludeFile: '',
 }
 
 export const DEFAULT_SSH_SOURCE: SshSourceConfig = {
@@ -69,6 +83,7 @@ export const DEFAULT_SSH_SOURCE: SshSourceConfig = {
   identityFile: '',
   root: '',
   encoding: 'auto',
+  excludeFile: '',
 }
 
 /**
@@ -110,6 +125,11 @@ export interface ScanConfig {
   extensions: readonly string[]
   /** 한 파일 최대 크기(바이트) */
   maxFileBytes: number
+  /**
+   * 제외 목록 파일에서 항목을 가르는 글자들. 비우면 쉼표와 줄바꿈 둘 다.
+   * 목록 형식이 이미 정해져 있는 현장(예: 세미콜론 구분)을 위해 열어 둔다.
+   */
+  excludeSeparators?: readonly string[]
 }
 
 /* ================================================================
@@ -152,6 +172,15 @@ export interface ComparedFile {
   stats: DiffStats
   leftSize: number | null
   rightSize: number | null
+  /**
+   * 제외 목록에 걸려 **접어 둔** 파일.
+   *
+   * 비교는 그대로 했다 — 거른 것이 아니라 목록에서 접었을 뿐이라, 화면이 펼치면
+   * 변경량까지 그대로 보인다. 걸린 파일에 변경이 있으면 그 사실을 따로 알려야 한다.
+   */
+  excluded: boolean
+  /** 걸린 규칙의 원문 (`*_bak.pc`). 접히지 않았으면 null */
+  excludedBy: string | null
 }
 
 /** 패키지 단위 변경 요약 — 화면 상단 밴드에 쓴다 */
@@ -173,14 +202,36 @@ export interface SnapshotListResponse {
   items: Snapshot[]
 }
 
+/**
+ * 제외 목록의 상태.
+ *
+ * 응답에 함께 실어 화면이 **"왜 이게 안 보이는지"** 를 말할 수 있게 한다.
+ * 조용히 접기만 하면 제외해 둔 자리에 들어온 변경을 아무도 못 본다.
+ */
+export interface ExcludeInfo {
+  /** 설정에 적힌 규칙 파일 경로. 비어 있으면 이 기능을 쓰지 않는 것 */
+  file: string
+  /** 읽어 들인 규칙 수 */
+  rules: number
+  /** 접어 둔 파일 수 */
+  files: number
+  /** 그중 **실제로 바뀐** 파일 수. 0 이 아니면 눈에 띄게 알린다 */
+  changed: number
+  /** 규칙 파일을 읽지 못했을 때의 안내. 조용히 넘어가지 않는다 */
+  error: string | null
+}
+
 /** `GET /api/v1/comparisons` 응답 */
 export interface ComparisonResponse {
   left: string
   right: string
+  /** 접어 둔 파일을 **뺀** 요약 — 화면에 보이는 목록과 합계가 어긋나지 않게 한다 */
   packages: PackageChange[]
+  /** 접어 둔 파일도 들어 있다 (`excluded` 로 표시). 펼치면 그대로 보인다 */
   files: ComparedFile[]
   /** 비교 대상에서 빠진 파일 수 (용량 초과·미지원 확장자) */
   skipped: number
+  exclude: ExcludeInfo
 }
 
 /** `GET /api/v1/comparisons/files` 응답 — 선택한 파일의 본문 */

@@ -13,6 +13,7 @@ import {
   parseFileEntries,
   parseFileStream,
   readFilesCommand,
+  readTextFileCommand,
 } from './sshCommands.ts'
 import { decodeText } from './decode.ts'
 import { SourceError, type RawFile, type SnapshotSource } from './types.ts'
@@ -114,6 +115,16 @@ export class SshSource implements SnapshotSource {
     }
 
     return out
+  }
+
+  /**
+   * 스냅샷 밖의 텍스트 파일 한 건 (제외 목록).
+   * 없는 파일은 출력 안에서 `@@-` 로 구분되므로, 여기서 실패 = 접속 문제다.
+   */
+  async readTextFile(target: string): Promise<string | null> {
+    const stream = await this.run(readTextFileCommand(target))
+    const [body] = parseFileStream(stream ?? new Uint8Array(), 1)
+    return body === null ? null : decodeText(body, this.conn.encoding)
   }
 
   /** 원격 바이트를 설정한 인코딩으로 옮긴다. 파일명도 같은 규칙으로 읽는다 */

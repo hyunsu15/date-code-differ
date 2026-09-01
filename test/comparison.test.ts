@@ -13,6 +13,13 @@ import { createSource, sourceKey } from '../server/source/resolve.ts'
 import type { RawFile, SnapshotSource } from '../server/source/types.ts'
 import { createHash } from 'node:crypto'
 import { DEFAULT_OPTIONS } from '../src/lib/normalize.ts'
+import { ExcludeList } from '../src/lib/excludeList.ts'
+import {
+  clearExcludeCache,
+  loadExcludeList,
+  NO_EXCLUDE,
+  type ExcludeState,
+} from '../server/excludeRules.ts'
 import type { ComparedFile, PackageChange, SourceConfig } from '../src/types.ts'
 
 /**
@@ -284,6 +291,10 @@ class CountingSource implements SnapshotSource {
     for (const p of paths) this.reads.push(`${id}/${p}`)
     return this.inner.readFiles(id, paths)
   }
+
+  readTextFile(path: string): Promise<string | null> {
+    return this.inner.readTextFile(path)
+  }
 }
 
 test('내용이 같은 파일은 한쪽만 읽는다 — 결과는 전부 읽었을 때와 같다', async () => {
@@ -420,4 +431,200 @@ test('경로 탈출 시도는 본문을 돌려주지 않는다', async () => {
 test('없는 파일은 결과에서 빠진다 — 빈 파일과 구분된다', async () => {
   const texts = await readFileTexts(source, '2026-08-01', ['nope/none.pc'])
   assert.equal(texts.has('nope/none.pc'), false)
+})
+
+/* ---------------- 제외 목록 — 거르는 게 아니라 접는다 ---------------- */
+
+/**
+ * 제외는 **목록을 정리하는 일**이지 비교를 아끼는 일이 아니다.
+ * 그래서 여기서 지켜봐야 할 것은 세 가지다.
+ *   1. 접힌 파일도 비교 결과에 그대로 남아 있는가 (펼치면 보여야 한다)
+ *   2. 요약(패키지)이 **보이는 목록과 같은 기준**으로 만들어지는가
+ *   3. 접어 둔 자리에 들어온 변경을 세어 알리는가 — 이게 이 기능의 안전장치다
+ */
+const excludeState = (raw: string, error: string | null = null): ExcludeState => ({
+  file: 'exclude.txt',
+  list: ExcludeList.parse(raw),
+  error,
+})
+
+const compareWith = (exclude: ExcludeState) =>
+  compareSnapshots(cfg, at('2026-08-01'), at('2026-09-01'), DEFAULT_OPTIONS, exclude)
+
+test('걸린 파일은 목록에서 사라지지 않고 표시만 붙는다', async () => {
+  const res = await compareWith(excludeState('*_common.h'))
+
+  const folded = find(res.files, 'ord/ord_common.h')
+  assert.equal(folded.excluded, true)
+  assert.equal(folded.excludedBy, '*_common.h', '어떤 규칙에 걸렸는지 알려줘야 한다')
+  assert.ok(folded.stats.aLines > 0, '접었어도 비교 통계는 그대로 있어야 한다')
+
+  const kept = find(res.files, 'ord/ord_create.pc')
+  assert.equal(kept.excluded, false)
+  assert.equal(kept.excludedBy, null)
+})
+
+test('제외 정보가 응답에 실린다 — 몇 개를 무엇으로 접었는지', async () => {
+  const res = await compareWith(excludeState('*_common.h'))
+
+  assert.equal(res.exclude.file, 'exclude.txt')
+  assert.equal(res.exclude.rules, 1)
+  assert.equal(
+    res.exclude.files,
+    res.files.filter((f) => f.excluded).length
+  )
+  assert.ok(res.exclude.files > 0, 'fixture 에 걸리는 파일이 있어야 의미가 있다')
+})
+
+test('접어 둔 자리에 들어온 변경을 센다 — 이걸 놓치면 접기가 사고가 된다', async () => {
+  // rpt 는 2026-09-01 에만 있는 패키지라, 접어도 "바뀐 것"으로 세어져야 한다
+  const res = await compareWith(excludeState('rpt'))
+
+  const folded = res.files.filter((f) => f.excluded)
+  assert.ok(folded.length > 0)
+  assert.equal(
+    res.exclude.changed,
+    folded.filter((f) => f.status !== 'same').length
+  )
+  assert.ok(res.exclude.changed > 0, '신규 패키지를 접었으면 변경으로 세어야 한다')
+})
+
+test('바뀐 것이 없는 파일만 접으면 변경 수는 0 이다', async () => {
+  const all = await compareWith(excludeState(''))
+  const same = all.files.find((f) => f.status === 'same')
+  assert.ok(same, 'fixture 에 동일 파일이 있어야 한다')
+
+  const res = await compareWith(excludeState(same.path))
+  assert.equal(res.exclude.files, 1)
+  assert.equal(res.exclude.changed, 0)
+})
+
+test('패키지 요약은 접어 둔 파일을 뺀 값이다 — 합계와 목록이 어긋나면 안 된다', async () => {
+  const res = await compareWith(excludeState('rpt'))
+
+  assert.equal(
+    res.packages.find((p) => p.name === 'rpt'),
+    undefined,
+    '통째로 접힌 패키지는 요약에서도 빠져야 한다'
+  )
+
+  const visible = res.files.filter((f) => !f.excluded)
+  const counted = res.packages.reduce((sum, p) => sum + p.added + p.removed + p.modified + p.same, 0)
+  assert.equal(counted, visible.length, '요약이 센 파일 수와 보이는 파일 수가 같아야 한다')
+})
+
+test('일부만 접힌 패키지는 남되 그 수만 줄어든다', async () => {
+  const before = await compareWith(excludeState(''))
+  const after = await compareWith(excludeState('ord/ord_common.h'))
+
+  const ordBefore = pkg(before.packages, 'ord')
+  const ordAfter = pkg(after.packages, 'ord')
+  const count = (p: PackageChange): number => p.added + p.removed + p.modified + p.same
+  assert.equal(count(ordAfter), count(ordBefore) - 1)
+})
+
+test('제외 목록을 쓰지 않으면 예전과 완전히 같은 응답이다', async () => {
+  const plain = await compareSnapshots(cfg, at('2026-08-01'), at('2026-09-01'))
+  const unused = await compareWith(NO_EXCLUDE)
+
+  assert.deepEqual(unused, plain, '쓰지 않는 배치에서 동작이 달라지면 안 된다')
+  assert.equal(unused.exclude.files, 0)
+  assert.equal(
+    unused.files.every((f) => !f.excluded),
+    true
+  )
+})
+
+test('규칙이 하나도 없는 파일을 가리켜도 그 파일을 쓰고 있다고 알린다', async () => {
+  // 설정에는 경로가 들어 있는데 내용이 비었을 뿐이다 — "안 쓰는 중" 과 구분되어야
+  // 사용자가 "규칙을 적었는데 왜 안 먹지" 를 파일에서 찾는다
+  const res = await compareWith(excludeState(''))
+  assert.equal(res.exclude.file, 'exclude.txt')
+  assert.equal(res.exclude.rules, 0)
+  assert.equal(res.exclude.files, 0)
+})
+
+test('규칙 파일을 못 읽으면 비교는 그대로 하고 오류만 실어 보낸다', async () => {
+  const res = await compareWith(excludeState('', '제외 목록 파일을 찾을 수 없습니다: exclude.txt'))
+
+  assert.ok(res.files.length > 0, '규칙 파일 하나 때문에 비교가 죽으면 안 된다')
+  assert.equal(res.exclude.files, 0)
+  assert.match(res.exclude.error ?? '', /찾을 수 없습니다/)
+})
+
+test('접기는 캐시에 남지 않는다 — 규칙을 바꾸면 곧바로 다른 결과가 나온다', async () => {
+  // 같은 좌우·같은 옵션이라 두 번째 호출은 캐시에서 온다. 그래도 규칙은 새로 먹어야 한다.
+  const folded = await compareWith(excludeState('*_common.h'))
+  const plain = await compareWith(excludeState(''))
+
+  assert.ok(folded.exclude.files > 0)
+  assert.equal(plain.exclude.files, 0)
+  assert.equal(
+    find(plain.files, 'ord/ord_common.h').excluded,
+    false,
+    '앞선 요청의 접기가 캐시에 새어 들어가면 안 된다'
+  )
+})
+
+/* ---------------- 규칙 파일 읽기 ---------------- */
+
+/**
+ * 규칙 파일은 **비교 대상과 같은 자리**에서 읽는다 (로컬이면 이 PC, SSH 면 원격).
+ * 여기서는 실제 `sample-code/exclude.txt` 를 그대로 읽어, 못 읽었을 때 비교가
+ * 죽지 않고 안내만 실려 오는지까지 본다.
+ */
+const separators = readRepositoryConfig().excludeSeparators
+
+test('설정한 규칙 파일을 실제로 읽어 규칙을 만든다', async () => {
+  clearExcludeCache()
+  const state = await loadExcludeList(source, key, './sample-code/exclude.txt', separators)
+
+  assert.equal(state.error, null)
+  assert.ok(state.list.size > 0, '견본 파일에 규칙이 하나는 있어야 한다')
+  assert.equal(state.list.matches('ord/ord_common.h'), '*_common.h')
+})
+
+test('경로를 비우면 규칙 파일을 읽지 않는다', async () => {
+  for (const blank of ['', '   ', undefined]) {
+    const state = await loadExcludeList(source, key, blank, separators)
+    assert.equal(state.file, '')
+    assert.equal(state.list.isEmpty, true)
+    assert.equal(state.error, null)
+  }
+})
+
+test('없는 규칙 파일은 오류로 알린다 — 조용히 "규칙 0개" 가 되면 안 된다', async () => {
+  clearExcludeCache()
+  const state = await loadExcludeList(source, key, './없는파일.txt', separators)
+
+  assert.equal(state.list.isEmpty, true)
+  assert.match(state.error ?? '', /찾을 수 없습니다/)
+  assert.equal(state.file, './없는파일.txt', '어느 경로를 못 찾았는지 보여줘야 한다')
+})
+
+test('폴더를 가리키면 "없음" 이 아니라 읽기 실패로 알린다', async () => {
+  clearExcludeCache()
+  const state = await loadExcludeList(source, key, './sample-code', separators)
+
+  assert.ok(state.error, '고칠 곳이 다르므로 없는 파일과 갈라야 한다')
+  assert.doesNotMatch(state.error ?? '', /찾을 수 없습니다/)
+})
+
+test('규칙 파일은 캐시하고, 새로고침에서 다시 읽는다', async () => {
+  clearExcludeCache()
+  const first = await loadExcludeList(source, key, './sample-code/exclude.txt', separators)
+  const cached = await loadExcludeList(source, key, './sample-code/exclude.txt', separators)
+  assert.equal(cached, first, '같은 경로는 다시 읽지 않는다 (SSH 왕복을 아낀다)')
+
+  clearExcludeCache()
+  const again = await loadExcludeList(source, key, './sample-code/exclude.txt', separators)
+  assert.notEqual(again, first, '새로고침 뒤에는 파일을 다시 읽어야 한다')
+  assert.equal(again.list.size, first.list.size)
+})
+
+test('구분자 설정이 규칙 읽기에 그대로 쓰인다', async () => {
+  clearExcludeCache()
+  // 견본 파일은 줄바꿈으로 적혀 있다 — 쉼표로만 가르면 한 덩어리가 된다
+  const state = await loadExcludeList(source, key, './sample-code/exclude.txt', [','])
+  assert.equal(state.list.matches('ord/ord_common.h'), null)
 })

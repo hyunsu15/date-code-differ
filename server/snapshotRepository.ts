@@ -1,3 +1,4 @@
+import { DEFAULT_EXCLUDE_SEPARATORS } from '../src/lib/excludeList.ts'
 import {
   hasComparableExt,
   packageOf,
@@ -15,6 +16,8 @@ import type { ScanConfig, Snapshot } from '../src/types.ts'
 export interface RepositoryConfig {
   extensions: ReadonlySet<string>
   maxFileBytes: number
+  /** 제외 목록 파일에서 항목을 가르는 글자들 (`src/lib/excludeList.ts` 가 쓴다) */
+  excludeSeparators: readonly string[]
 }
 
 const DEFAULT_MAX_FILE_BYTES = 2_000_000
@@ -22,9 +25,13 @@ const DEFAULT_MAX_FILE_BYTES = 2_000_000
 /** `change/config.ts` 의 `SCAN` 을 실제 훑기 설정으로 바꾼다 */
 export function readRepositoryConfig(scan: Partial<ScanConfig> = {}): RepositoryConfig {
   const max = Number(scan.maxFileBytes)
+  const separators = scan.excludeSeparators?.filter((s) => typeof s === 'string' && s.length > 0)
   return {
     extensions: parseExtensions(scan.extensions?.join(',')),
     maxFileBytes: Number.isFinite(max) && max > 0 ? max : DEFAULT_MAX_FILE_BYTES,
+    // 나중에 생긴 설정이라 없을 수 있다 — 그때는 쉼표와 줄바꿈 둘 다 받는다
+    excludeSeparators:
+      separators && separators.length > 0 ? separators : DEFAULT_EXCLUDE_SEPARATORS,
   }
 }
 

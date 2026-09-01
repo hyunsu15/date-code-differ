@@ -7,6 +7,7 @@ import {
   readFilePair,
   type SideRef,
 } from './comparisonService.ts'
+import { clearExcludeCache, loadExcludeList } from './excludeRules.ts'
 import { createSource, sourceKey } from './source/resolve.ts'
 import { SourceError, type SnapshotSource } from './source/types.ts'
 import type {
@@ -27,6 +28,9 @@ import type {
  *
  * 비교는 좌우가 **서로 다른 폴더**일 수 있다 (운영 ↔ 테스트). 서버·계정·인코딩은
  * 같고 위치만 갈리므로, 다를 때만 `rightRoot` 하나를 더 받는다 — 없으면 양쪽이 `root` 다.
+ *
+ * 소스 파라미터에는 `excludeFile`(목록에서 접어 둘 파일들이 적힌 텍스트 파일)이 함께 온다.
+ * 좌우 위치가 갈려도 **규칙은 하나**라 왼쪽 소스로 한 번만 읽는다 (`server/excludeRules.ts`).
  *
  * **GET 뿐이다.** 대상 폴더를 수정하는 동작도, 자격증명을 받는 동작도 없다 —
  * SSH 인증은 ssh 가 알아서 한다(개인키·ssh-agent·~/.ssh/config).
@@ -62,9 +66,10 @@ function readDiffOptions(query: URLSearchParams): DiffOptions {
  */
 export function readSourceConfig(query: URLSearchParams): SourceConfig {
   const encoding = readEncoding(query.get('encoding'))
+  const excludeFile = query.get('excludeFile') ?? ''
 
   if (query.get('mode') !== 'ssh') {
-    return { mode: 'local', root: query.get('root') ?? '', encoding }
+    return { mode: 'local', root: query.get('root') ?? '', encoding, excludeFile }
   }
   const port = Number(query.get('port'))
   return {
@@ -75,6 +80,7 @@ export function readSourceConfig(query: URLSearchParams): SourceConfig {
     identityFile: query.get('identityFile') ?? '',
     root: query.get('root') ?? '',
     encoding,
+    excludeFile,
   }
 }
 
@@ -168,6 +174,8 @@ export function createHandler(cfg: RepositoryConfig, projectRoot: string): ApiHa
           if (queryFlag(query, 'refresh')) {
             clearCache()
             clearComparisonCache()
+            // 제외 규칙 파일도 다시 읽는다 — 새로고침은 "지금 상태로 맞춰라" 라는 뜻이다
+            clearExcludeCache()
           }
           const resolved = resolve()
           if (!resolved) return
@@ -210,10 +218,19 @@ export function createHandler(cfg: RepositoryConfig, projectRoot: string): ApiHa
           const sides = resolveSides(left, right)
           if (!sides) return
 
+          // 제외 목록은 좌우가 같은 것을 본다 — 환경 폴더는 `root` 만 가르므로
+          // 왼쪽 소스로 한 번만 읽는다 (`SourceBase.excludeFile` 주석 참고)
+          const exclude = await loadExcludeList(
+            sides.left.source,
+            sides.left.key,
+            readSourceConfig(query).excludeFile,
+            cfg.excludeSeparators
+          )
+
           sendJson(
             res,
             200,
-            await compareSnapshots(cfg, sides.left, sides.right, readDiffOptions(query))
+            await compareSnapshots(cfg, sides.left, sides.right, readDiffOptions(query), exclude)
           )
           return
         }

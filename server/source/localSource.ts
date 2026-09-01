@@ -10,10 +10,13 @@ export class LocalSource implements SnapshotSource {
   /** 절대 경로 */
   private readonly root: string
   private readonly encoding: TextEncodingName
+  /** 루트 **밖의** 상대 경로(제외 목록 파일)를 푸는 기준. 루트와는 별개다 */
+  private readonly projectRoot: string
 
-  constructor(root: string, encoding: TextEncodingName) {
+  constructor(root: string, encoding: TextEncodingName, projectRoot: string) {
     this.root = root
     this.encoding = encoding
+    this.projectRoot = projectRoot
   }
 
   describe(): string {
@@ -67,6 +70,24 @@ export class LocalSource implements SnapshotSource {
     }
 
     return out
+  }
+
+  /**
+   * 루트 밖의 텍스트 파일 한 건. 상대 경로는 **프로젝트 폴더 기준**으로 푼다
+   * (`root` 와 같은 규칙이라 설정에 적을 때 헷갈리지 않는다).
+   *
+   * 없는 파일은 null 로, 그 밖의 실패는 오류로 갈라 낸다 — 경로를 잘못 적은 것과
+   * 권한이 없거나 폴더를 가리킨 것은 고칠 곳이 다르다.
+   */
+  async readTextFile(target: string): Promise<string | null> {
+    const file = path.resolve(this.projectRoot, target)
+    try {
+      return decodeText(await fs.readFile(file), this.encoding)
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') return null
+      throw new SourceError(`${file}\n${(e as Error).message}`, 'LOCAL_READ_FAILED')
+    }
   }
 
   private async readOne(snapshotId: string, relPath: string): Promise<string | null> {
