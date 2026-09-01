@@ -21,12 +21,20 @@
 | `port` | Number | N | 비우거나 숫자가 아니면 ssh 기본값(22) |
 | `identityFile` | String | N | 개인키 경로. 비우면 ssh 기본 키 |
 | `encoding` | String | N | `auto`(기본) · `utf-8` · `euc-kr`. 모르는 값은 `auto` 로 본다 |
+| `excludeFile` | String | N | 목록에서 접어 둘 파일들이 적힌 텍스트 파일 경로. 비우면 접지 않는다 |
 
 **자격증명 파라미터는 없다.** SSH 인증은 이 API 가 아니라 **ssh 가 알아서 한다** —
 개인키 · ssh-agent · `~/.ssh/config`. 비밀번호는 받지도, 보관하지도 않는다.
 
 `encoding` 은 로컬·SSH 모두에 적용된다. `auto` 는 UTF-8 로 읽어보고 유효하지 않으면 EUC-KR 로 본다
 (올바른 UTF-8 파일은 항상 UTF-8 로 읽히므로 멀쩡한 파일이 망가지지 않는다).
+
+`excludeFile` 은 **비교 대상과 같은 자리**에서 읽는다 (local 이면 이 PC, ssh 면 원격 서버).
+`root` 와 무관하게 푼다 — local 의 상대 경로는 프로젝트 폴더 기준, ssh 는 원격 경로 그대로다
+(`~/release/exclude.txt` 처럼 홈 기준도 된다). `rightRoot` 로 좌우 위치가 갈려도 **규칙은 하나**다.
+
+이 파라미터는 **2번 비교 API 에서만** 뜻이 있다 (1·3번은 받아도 무시한다).
+읽어 들인 규칙은 캐시되며 `?refresh=1`(1번 API) 로 다시 읽는다.
 
 ```
 GET /api/v1/snapshots
@@ -216,7 +224,8 @@ GET /api/v1/comparisons?mode=local&root=.%2Fsample-code%2Fprod
       "stats": { "aLines": 43, "bLines": 63, "same": 41, "modified": 2, "added": 20, "removed": 0, "changedLines": 22, "lineSimilarity": 0.6507, "diceSimilarity": 0.7735, "charSimilarity": 0.7423, "changeRatio": 0.3492, "comparedA": 43, "comparedB": 63, "ignored": 0, "charsA": 874, "charsB": 1430, "commonChars": 1710 }
     }
   ],
-  "skipped": 0
+  "skipped": 0,
+  "exclude": { "file": "", "rules": 0, "files": 0, "changed": 0, "error": null }
 }
 ```
 
@@ -230,9 +239,39 @@ GET /api/v1/comparisons?mode=local&root=.%2Fsample-code%2Fprod
 | `files[].status` | String | `added` 이후에만 있음 / `removed` 이전에만 있음 / `modified` 양쪽에 있고 다름 / `same` 양쪽이 같음 |
 | `files[].leftSize` `rightSize` | Number \| null | 그쪽에 파일이 없으면 `null` |
 | `files[].stats` | Object | **항상 채워진다.** 한쪽에만 있는 파일은 빈 파일과 비교한 값 (신규는 전 줄 `added`, 삭제는 전 줄 `removed`) |
-| `skipped` | Number | 확장자 미대상·용량 초과로 목록에서 빠진 파일 수 (좌우 합계) |
+| `files[].excluded` | Boolean | 제외 목록에 걸려 **접어 둔** 파일. 목록에서 빠지지 않는다 |
+| `files[].excludedBy` | String \| null | 걸린 규칙의 원문. `excluded=false` 면 `null` |
+| `skipped` | Number | 확장자 미대상·용량 초과로 **아예 읽지 않은** 파일 수 (좌우 합계) |
+| `exclude.file` | String | 요청의 `excludeFile` 값. 빈 문자열이면 이 기능을 쓰지 않은 것 |
+| `exclude.rules` | Number | 규칙 파일에서 읽어 들인 규칙 수 |
+| `exclude.files` | Number | 접어 둔 파일 수 (= `files[].excluded` 가 참인 것) |
+| `exclude.changed` | Number | 그중 `status !== 'same'` 인 수. **0 이 아니면 화면이 눈에 띄게 알린다** |
+| `exclude.error` | String \| null | 규칙 파일을 읽지 못한 이유. 이때도 비교 자체는 정상 응답이다 |
 
 `packages` 는 이름 오름차순, `files` 는 경로 오름차순.
+
+**`skipped` 와 `exclude` 는 다르다.** `skipped` 는 확장자·용량 기준으로 **아예 읽지 않은** 파일이라
+결과에 흔적이 없다. `exclude` 는 **읽고 비교까지 마친 뒤 접어 둔** 파일이라 `files` 에 그대로 있고,
+통계도 채워져 있다 — 화면이 펼치면 변경 내용까지 그대로 보인다. 그래서 접기는 읽는 양을 줄이지 않는다.
+
+`packages` 는 **접어 둔 파일을 뺀** 값이다. 화면에 보이는 목록과 합계가 어긋나지 않게 하기 위함이며,
+한 패키지의 파일이 모두 접히면 그 패키지는 `packages` 에서 사라진다.
+
+#### 규칙 파일 형식
+
+항목을 **쉼표 또는 줄바꿈**으로 구분한다 (`change/config.ts` 의 `SCAN.excludeSeparators` 로 바꿀 수 있다).
+`#` 로 시작하는 항목은 설명이다. 정규식은 지원하지 않는다.
+
+| 적는 법 | 뜻 | 예 |
+| ------ | -- | -- |
+| 이름만 | 어느 폴더에 있든 | `*_bak.pc` → `ord/a_bak.pc` |
+| 폴더 이름 | 그 아래 전부 | `rpt` → `rpt/rpt_daily.pc` |
+| 슬래시 포함 | 루트부터 맞춤 | `ord/tmp` → `ord/tmp/x.pc` (단 `pay/ord/tmp/x.pc` 는 아님) |
+| `*` | 한 폴더 안 | `ord/*.pc` (`ord/sub/a.pc` 는 아님) |
+| `**` | 폴더를 넘어 | `ord/**/*.pc` |
+| `?` | 한 글자 | `ord_?.pc` |
+
+대소문자는 가리지 않는다 (같은 규칙이 윈도우와 UNIX 에서 다르게 먹지 않도록).
 
 `left` 와 `right` 가 같아도 오류가 아니다. 모든 파일이 `same` 으로 온다.
 `left` 가 `right` 보다 최신이어도 오류가 아니며, 신규/삭제가 뒤바뀐 결과가 온다.
@@ -324,8 +363,13 @@ SSH 는 `execFile` 로 인자 배열을 넘겨 **로컬 셸 보간이 없다.** 
 | ---- | -- | ---------- |
 | 스냅샷 파일 목록 | 위치 + 스냅샷 id | `GET /snapshots?refresh=1` |
 | 좌우 비교 결과 | 위치 + `left` + `right` + 무시 옵션 6비트 | 위와 같음 |
+| 제외 규칙 | 위치 + `excludeFile` | 위와 같음 |
 
 "위치" 키에는 `encoding` 도 들어간다 — 인코딩이 다르면 같은 파일도 다른 내용으로 읽힌다.
+
+**`excludeFile` 은 "위치" 키에 들어가지 않는다.** 목록도 비교 결과도 제외와 무관하게 만들고
+접기는 그 위에 얹기 때문이다 — 규칙을 고쳐도 폴더를 다시 훑지 않고, 다음 요청에 바로 반영된다
+(규칙 **파일의 내용**은 위 표대로 캐시되므로 파일을 고친 뒤에는 새로고침이 필요하다).
 
 "위치" 키에는 개인키 **경로**만 들어간다 (키 내용·비밀번호는 애초에 다루지 않는다).
 

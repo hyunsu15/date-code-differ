@@ -31,6 +31,7 @@ const SHOTS = [
   ['04-crossenv', 'crossenv'],
   ['05-files', 'files'],
   ['06-diff', 'diff'],
+  ['07-exclude', 'exclude'],
 ]
 
 /**
