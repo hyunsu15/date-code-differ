@@ -34,7 +34,12 @@ export const presetById = (id: string | null): SourcePreset | undefined =>
   id === null ? undefined : SOURCE_PRESETS.find((p) => p.id === id)
 
 /** 프리셋이 하나도 없을 때를 대비한 최후 기본값 */
-const FALLBACK: SourceConfig = { mode: 'local', root: './sample-code', encoding: 'auto' }
+const FALLBACK: SourceConfig = {
+  mode: 'local',
+  root: './sample-code',
+  encoding: 'auto',
+  excludeFile: '',
+}
 
 /**
  * 저장된 선택이 없을 때 쓸 프리셋.
@@ -57,8 +62,11 @@ const asEncoding = (v: unknown): TextEncodingName =>
 /** 저장된 JSON 을 믿지 않고 한 겹 검증한다 (사용자가 직접 고칠 수 있는 값이다) */
 function parseSource(value: Record<string, unknown>): SourceConfig {
   const encoding = asEncoding(value.encoding)
+  const excludeFile = asString(value.excludeFile)
 
-  if (value.mode !== 'ssh') return { mode: 'local', root: asString(value.root), encoding }
+  if (value.mode !== 'ssh') {
+    return { mode: 'local', root: asString(value.root), encoding, excludeFile }
+  }
 
   const port = Number(value.port)
   return {
@@ -69,6 +77,7 @@ function parseSource(value: Record<string, unknown>): SourceConfig {
     identityFile: asString(value.identityFile),
     root: asString(value.root),
     encoding,
+    excludeFile,
   }
 }
 
@@ -126,6 +135,10 @@ export function sourceParams(config: SourceConfig): Record<string, string> {
 
   // 기본값(auto)이면 보내지 않는다 — 서버도 같은 기본값을 쓴다
   if (config.encoding !== 'auto') params.encoding = config.encoding
+
+  // 제외 목록을 안 쓰면 보내지 않는다 — 쓰지 않는 배치에서 URL 이 예전과 똑같이 유지된다
+  const excludeFile = (config.excludeFile ?? '').trim()
+  if (excludeFile) params.excludeFile = excludeFile
 
   if (config.mode !== 'ssh') {
     params.mode = 'local'

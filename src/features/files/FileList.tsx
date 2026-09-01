@@ -19,6 +19,10 @@ interface FileListProps {
 /**
  * 좌우 비교 결과 파일 목록.
  * 유사도 막대는 양쪽에 모두 있는 파일에만 뜬다 (신규/삭제는 비교 대상이 없다).
+ *
+ * 제외 목록에 걸린 파일은 **지우지 않고 흐리게** 둔다 (펼쳤을 때). 같은 자리에 그대로
+ * 있어야 "왜 이게 안 보이지" 가 풀리고, 어떤 규칙에 걸렸는지도 함께 보여 준다 —
+ * 규칙을 고칠 곳을 바로 알 수 있어야 접기가 무섭지 않다.
  */
 export default function FileList({ files, selectedPath, onSelect, emptyMessage }: FileListProps) {
   if (files.length === 0) {
@@ -40,16 +44,25 @@ export default function FileList({ files, selectedPath, onSelect, emptyMessage }
           <button
             key={f.path}
             type="button"
-            className={`file-item ${f.path === selectedPath ? 'active' : ''}`}
+            className={[
+              'file-item',
+              f.path === selectedPath ? 'active' : '',
+              f.excluded ? 'excluded' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
             onClick={() => onSelect(f.path)}
-            title={f.path}
+            title={f.excluded ? `${f.path}\n제외 규칙: ${f.excludedBy}` : f.path}
           >
             <div className="row1">
               <span className="fname">{name}</span>
               <span className={`badge s-${f.status}`}>{STATUS_LABEL[f.status]}</span>
+              {f.excluded && <span className="badge s-excluded">제외</span>}
             </div>
 
             {dir && <div className="fdir">{dir}</div>}
+
+            {f.excluded && <div className="excl-why">규칙 · {f.excludedBy}</div>}
 
             <div className="row2">
               {oneSided ? (

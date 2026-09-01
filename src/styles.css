@@ -1066,6 +1066,23 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .filelist-head .pkg-filter { color: var(--accent); font-family: var(--mono); }
 .filelist-head .skipped { color: var(--muted); }
 
+/* 제외(접기) — 늘 보이는 자리다. 눌러서 펼칠 수 있다는 것이 드러나야 한다 */
+.excl-toggle {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.excl-toggle:hover { color: var(--text); }
+.excl-toggle.on { color: var(--accent); }
+/* "접어 뒀는데 그 안에 변경이 있다" — 이 기능에서 유일하게 놓치면 안 되는 신호다 */
+.excl-toggle b { color: #d29922; font-variant-numeric: tabular-nums; }
+.filelist-head .excl-error { color: var(--del-fg); font-weight: 600; }
+
 .filelist-empty { padding: 16px; color: var(--faint); font-size: 12.5px; line-height: 1.7; }
 
 .badge.s-added { background: var(--add-bg); color: var(--add-fg); }
@@ -1073,9 +1090,24 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .badge.s-modified { background: rgba(187, 128, 9, 0.18); color: #d29922; }
 .badge.s-same { background: var(--border-soft); color: var(--faint); }
 
+.badge.s-excluded { background: var(--border-soft); color: var(--muted); }
+
 .file-item .mod { color: #d29922; }
 .file-item .no-sim { color: var(--faint); font-style: italic; }
 .file-item .simpct { min-width: 40px; text-align: right; font-weight: 600; }
+
+/* 접어 둔 파일 — 지우지 않고 흐리게 남긴다. 고르면 평소처럼 또렷해진다 */
+.file-item.excluded { opacity: 0.55; }
+.file-item.excluded:hover,
+.file-item.excluded.active { opacity: 1; }
+.file-item .excl-why {
+  font-size: 10.5px;
+  color: var(--muted);
+  font-family: var(--mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ================================================================
    선택 파일 제목 줄

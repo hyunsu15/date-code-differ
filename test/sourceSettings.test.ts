@@ -8,6 +8,7 @@ import {
   presetById,
   SOURCE_PRESETS,
   sourceParams,
+  comparisonParams,
 } from '../src/features/settings/sourceSettings.ts'
 import { DEFAULT_PRESET_ID } from '../change/config.ts'
 import { DEFAULT_SSH_SOURCE, type SourceConfig } from '../src/types.ts'
@@ -20,7 +21,7 @@ import { DEFAULT_SSH_SOURCE, type SourceConfig } from '../src/types.ts'
  * 저장값은 사용자가 직접 고칠 수 있으므로 믿지 않고 한 겹 검증한다.
  */
 
-const LOCAL: SourceConfig = { mode: 'local', root: 'D:/rel', encoding: 'auto' }
+const LOCAL: SourceConfig = { mode: 'local', root: 'D:/rel', encoding: 'auto', excludeFile: '' }
 
 /* ---------------- 프리셋 ---------------- */
 
@@ -111,6 +112,7 @@ test('타입이 어긋난 값은 빈 문자열·null 로 바로잡는다', () =>
     identityFile: '',
     root: '',
     encoding: 'auto',
+    excludeFile: '',
   })
 })
 
@@ -120,6 +122,7 @@ test('모르는 mode 는 로컬로 본다', () => {
     mode: 'local',
     root: '/x',
     encoding: 'auto',
+    excludeFile: '',
   })
 })
 
@@ -226,4 +229,57 @@ test('기본으로 들어있는 프리셋은 그대로 쓸 수 있는 상태다'
   for (const preset of SOURCE_PRESETS) {
     assert.deepEqual(missingFields(preset.source), [], preset.id)
   }
+})
+
+/* ---------------- 제외 목록 파일 ---------------- */
+
+test('제외 목록을 쓰지 않으면 파라미터에 넣지 않는다 — URL 이 예전과 같아야 한다', () => {
+  assert.deepEqual(sourceParams({ mode: 'local', root: 'D:/rel', encoding: 'auto' }), {
+    mode: 'local',
+    root: 'D:/rel',
+  })
+  assert.deepEqual(
+    sourceParams({ mode: 'local', root: 'D:/rel', encoding: 'auto', excludeFile: '   ' }),
+    { mode: 'local', root: 'D:/rel' }
+  )
+})
+
+test('제외 목록 경로는 앞뒤 공백을 털어 보낸다', () => {
+  assert.deepEqual(
+    sourceParams({ mode: 'local', root: 'D:/rel', encoding: 'auto', excludeFile: ' x.txt ' }),
+    { mode: 'local', root: 'D:/rel', excludeFile: 'x.txt' }
+  )
+  assert.equal(
+    sourceParams({ ...DEFAULT_SSH_SOURCE, host: 'h', user: 'u', root: '/r', excludeFile: '~/e.txt' })
+      .excludeFile,
+    '~/e.txt'
+  )
+})
+
+test('저장된 제외 목록 경로를 되살린다', () => {
+  const raw = JSON.stringify({
+    presetId: null,
+    source: { mode: 'local', root: '/x', excludeFile: 'e.txt' },
+  })
+  assert.equal(parseSourceSelection(raw).source.excludeFile, 'e.txt')
+})
+
+test('제외 목록 경로가 문자열이 아니면 빈 값으로 본다', () => {
+  for (const bad of [123, null, {}, ['a']]) {
+    const raw = JSON.stringify({
+      presetId: null,
+      source: { mode: 'local', root: '/x', excludeFile: bad },
+    })
+    assert.equal(parseSourceSelection(raw).source.excludeFile, '', JSON.stringify(bad))
+  }
+})
+
+test('좌우 위치가 갈려도 제외 목록은 하나다', () => {
+  const left: SourceConfig = { mode: 'local', root: '/rel/prod', encoding: 'auto', excludeFile: 'e.txt' }
+  const right: SourceConfig = { ...left, root: '/rel/test' }
+  const params = comparisonParams(left, right)
+
+  assert.equal(params.root, '/rel/prod')
+  assert.equal(params.rightRoot, '/rel/test')
+  assert.equal(params.excludeFile, 'e.txt', '환경이 갈려도 규칙 파일은 한 곳을 본다')
 })

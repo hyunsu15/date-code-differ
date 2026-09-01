@@ -25,6 +25,8 @@ interface Draft {
   presetId: string | null
   mode: SourceMode
   localRoot: string
+  /** 로컬일 때의 제외 목록 파일. SSH 쪽 값은 `ssh.excludeFile` 이 따로 든다 */
+  localExclude: string
   ssh: SshSourceConfig
   /** 인코딩은 두 모드가 함께 쓴다 */
   encoding: TextEncodingName
@@ -36,6 +38,7 @@ function toDraft(selection: SourceSelection): Draft {
     presetId: selection.presetId,
     mode: source.mode,
     localRoot: source.mode === 'local' ? source.root : '',
+    localExclude: source.mode === 'local' ? (source.excludeFile ?? '') : '',
     ssh: source.mode === 'ssh' ? source : DEFAULT_SSH_SOURCE,
     encoding: source.encoding,
   }
@@ -43,7 +46,12 @@ function toDraft(selection: SourceSelection): Draft {
 
 function draftSource(draft: Draft): SourceConfig {
   if (draft.mode === 'local') {
-    return { mode: 'local', root: draft.localRoot.trim(), encoding: draft.encoding }
+    return {
+      mode: 'local',
+      root: draft.localRoot.trim(),
+      encoding: draft.encoding,
+      excludeFile: draft.localExclude.trim(),
+    }
   }
   return {
     ...draft.ssh,
@@ -52,6 +60,7 @@ function draftSource(draft: Draft): SourceConfig {
     identityFile: draft.ssh.identityFile.trim(),
     root: draft.ssh.root.trim(),
     encoding: draft.encoding,
+    excludeFile: (draft.ssh.excludeFile ?? '').trim(),
   }
 }
 
@@ -252,6 +261,38 @@ export default function SettingsPanel({ value, onApply, onClose }: SettingsPanel
               </p>
             </>
           )}
+
+          {/* 제외 목록은 두 모드가 같은 뜻을 갖고 경로 형태만 다르다 — 한 칸으로 둔다 */}
+          <label className="field">
+            <span>제외 목록 파일</span>
+            <input
+              type="text"
+              value={draft.mode === 'local' ? draft.localExclude : (draft.ssh.excludeFile ?? '')}
+              onChange={(e) =>
+                draft.mode === 'local'
+                  ? edit({ localExclude: e.target.value })
+                  : setSsh('excludeFile', e.target.value)
+              }
+              placeholder={
+                draft.mode === 'local'
+                  ? '비우면 접지 않습니다. 예: ./sample-code/exclude.txt'
+                  : '비우면 접지 않습니다. 예: /home/build/exclude.txt'
+              }
+              spellCheck={false}
+            />
+            <small>
+              여기 적힌 파일을 목록에서 <b>접어 둡니다</b> — 지우는 것이 아니라서, 접은 것 중에
+              바뀐 파일이 있으면 <b>몇 개인지 함께 알립니다.</b>
+              <br />
+              항목은 <b>쉼표 또는 줄바꿈</b>으로 구분합니다. <code>*_bak.pc</code> 는 어느 폴더에
+              있든, <code>ord/tmp</code> 는 그 아래 전부, <code>#</code> 로 시작하면 설명입니다.
+              <br />
+              {draft.mode === 'local'
+                ? '상대 경로는 이 프로젝트 폴더 기준입니다.'
+                : '원격 서버의 경로입니다 (~/ 로 시작해도 됩니다).'}{' '}
+              고친 뒤에는 <b>새로고침</b>을 누르면 다시 읽습니다.
+            </small>
+          </label>
 
           <label className="field">
             <span>소스 인코딩</span>

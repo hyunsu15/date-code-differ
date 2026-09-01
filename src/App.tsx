@@ -129,6 +129,12 @@ export default function App() {
   const [query, setQuery] = useState('')
   // 요구사항: 기본은 "바뀐 파일만" 보여준다
   const [onlyChanged, setOnlyChanged] = useState(true)
+  /**
+   * 제외 목록에 걸린 파일을 펼쳐 볼지. **접힌 채로 시작한다** — 목록을 정리하려고 켠 기능이라
+   * 켤 때마다 다시 접혀 있는 편이 맞고, 브라우저에 남기면 "펼쳐 둔 것을 잊은 채" 다음에
+   * 다시 열게 된다. 접힌 상태에서도 몇 개가 접혔는지는 늘 보인다.
+   */
+  const [showExcluded, setShowExcluded] = useState(false)
   const fileSearchRef = useRef<HTMLInputElement | null>(null)
 
   /* ---------------- 선택 파일 본문 ---------------- */
@@ -295,16 +301,28 @@ export default function App() {
      목록 필터링 & 선택
      ================================================================ */
 
+  /**
+   * 제외 목록에 걸리지 **않은** 파일 — 요약 카드와 합계가 보는 것.
+   *
+   * 접어 둔 파일까지 합계에 넣으면 "12개 변경" 인데 목록에는 9개만 보이게 된다.
+   * (패키지 밴드는 서버가 같은 기준으로 만들어 준다 — `ComparisonResponse.packages`)
+   */
+  const includedFiles = useMemo(
+    () => (comparison?.files ?? []).filter((f) => !f.excluded),
+    [comparison]
+  )
+
   const visibleFiles = useMemo(() => {
     const all = comparison?.files ?? []
     const q = query.trim().toLowerCase()
     return all.filter((f) => {
+      if (f.excluded && !showExcluded) return false
       if (selectedPackage && f.packageName !== selectedPackage) return false
       if (q && !f.path.toLowerCase().includes(q)) return false
       if (onlyChanged && f.status === 'same') return false
       return true
     })
-  }, [comparison, query, onlyChanged, selectedPackage])
+  }, [comparison, query, onlyChanged, selectedPackage, showExcluded])
 
   const selectedFile = useMemo(
     () => visibleFiles.find((f) => f.path === selectedPath) ?? visibleFiles[0] ?? null,
@@ -535,14 +553,31 @@ export default function App() {
      렌더
      ================================================================ */
 
+  // 합계는 접어 둔 파일을 뺀 것으로 낸다 (`includedFiles` 주석 참고)
   const overall = useMemo(
-    () => aggregateStats((comparison?.files ?? []).map((f) => f.stats)),
-    [comparison]
+    () => aggregateStats(includedFiles.map((f) => f.stats)),
+    [includedFiles]
   )
   const changedCount = useMemo(
-    () => (comparison?.files ?? []).filter((f) => f.status !== 'same').length,
-    [comparison]
+    () => includedFiles.filter((f) => f.status !== 'same').length,
+    [includedFiles]
   )
+  /** 제외 목록 상태 — 접힌 수와 "그중 바뀐 수" 를 화면이 늘 보여줄 수 있게 서버가 실어 준다 */
+  const exclude = comparison?.exclude ?? null
+
+  /**
+   * 목록이 비었을 때의 안내.
+   * **접혀서 비었을 때를 따로 말한다** — "비교할 파일이 없습니다" 라고만 하면
+   * 규칙을 너무 넓게 적어 전부 접어 놓고도 폴더가 비었다고 오해한다.
+   */
+  const emptyFileMessage = (): string => {
+    if (comparing) return '비교하는 중…'
+    if (exclude && exclude.files > 0 && !showExcluded) {
+      return '보이는 파일이 모두 접혀 있습니다. 위의 "제외" 를 눌러 펼쳐 보세요.'
+    }
+    if (onlyChanged) return '변경된 파일이 없습니다. "변경된 파일만" 을 끄면 전체가 보입니다.'
+    return '비교할 파일이 없습니다.'
+  }
   /** 프리셋을 고른 상태면 그 이름을 헤더에 함께 보여준다 */
   const presetLabel = presetById(sourceSelection.presetId)?.label ?? null
 
@@ -869,10 +904,10 @@ export default function App() {
         {showSidebar && (
           <aside className="sidebar">
             {/* 비교한 파일이 없을 때 유사도 100% 는 오해를 부르므로 카드를 띄우지 않는다 */}
-            {comparison && comparison.files.length > 0 ? (
+            {comparison && includedFiles.length > 0 ? (
               <SummaryCard
                 stats={overall}
-                fileCount={comparison.files.length}
+                fileCount={includedFiles.length}
                 changedCount={changedCount}
                 leftLabel={`${leftTag} ${left}`}
                 rightLabel={`${rightTag} ${right}`}
@@ -907,9 +942,41 @@ export default function App() {
               파일 <b>{num(visibleFiles.length)}</b>개
               {selectedPackage && <span className="pkg-filter">· {selectedPackage}</span>}
               {comparison && comparison.skipped > 0 && (
-                <span className="skipped" title="change/config.ts 의 SCAN 기준">
-                  · 제외 {comparison.skipped}
+                <span
+                  className="skipped"
+                  title={
+                    '확장자가 대상이 아니거나 용량을 넘어 아예 읽지 않은 파일입니다.\n' +
+                    'change/config.ts 의 SCAN 에서 정합니다.'
+                  }
+                >
+                  · 대상 밖 {comparison.skipped}
                 </span>
+              )}
+
+              {/* 규칙 파일을 못 읽은 것은 조용히 넘어가면 안 된다 —
+                  접힌 줄 알았던 파일이 그냥 다 보이고 있는 상태다 */}
+              {exclude?.error && (
+                <span className="excl-error" title={exclude.error}>
+                  · ⚠ 제외 목록 오류
+                </span>
+              )}
+
+              {exclude && exclude.files > 0 && (
+                <button
+                  type="button"
+                  className={`excl-toggle ${showExcluded ? 'on' : ''}`}
+                  onClick={() => setShowExcluded((v) => !v)}
+                  title={
+                    `제외 목록: ${exclude.file}\n` +
+                    `규칙 ${exclude.rules}개로 ${exclude.files}개를 접었습니다.\n` +
+                    (exclude.changed > 0
+                      ? `그중 ${exclude.changed}개는 실제로 바뀌었습니다 — 눌러서 확인하세요.`
+                      : '눌러서 펼쳐 볼 수 있습니다.')
+                  }
+                >
+                  · 제외 {exclude.files}
+                  {exclude.changed > 0 && <b> · 변경 {exclude.changed}</b>}
+                </button>
               )}
             </div>
 
@@ -917,13 +984,7 @@ export default function App() {
               files={visibleFiles}
               selectedPath={selectedFile?.path ?? null}
               onSelect={setSelectedPath}
-              emptyMessage={
-                comparing
-                  ? '비교하는 중…'
-                  : onlyChanged
-                    ? '변경된 파일이 없습니다. "변경된 파일만" 을 끄면 전체가 보입니다.'
-                    : '비교할 파일이 없습니다.'
-              }
+              emptyMessage={emptyFileMessage()}
             />
           </aside>
         )}
