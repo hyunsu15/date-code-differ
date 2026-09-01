@@ -1,6 +1,6 @@
 import { diffArrays } from 'diff'
 import { splitLines, tokenizeCode } from './tokenize.ts'
-import { DEFAULT_OPTIONS, isDroppedLine, normalizeLine } from './normalize.ts'
+import { DEFAULT_OPTIONS, markDroppedLines, normalizeLine } from './normalize.ts'
 import type {
   CharRange,
   DiffOptions,
@@ -135,13 +135,15 @@ export function buildFileDiff(
     }
   }
 
-  // 1) 무시 대상 라인 걸러내기
+  // 1) 무시 대상 라인 걸러내기 — 여러 줄 주석 때문에 줄 하나씩이 아니라 파일 단위로 본다
+  const aDrop = markDroppedLines(aAll, opts)
+  const bDrop = markDroppedLines(bAll, opts)
   const aKeep: number[] = []
   const bKeep: number[] = []
   const aDropped = new Set<number>()
   const bDropped = new Set<number>()
-  aAll.forEach((l, i) => (isDroppedLine(l, opts) ? aDropped.add(i) : aKeep.push(i)))
-  bAll.forEach((l, i) => (isDroppedLine(l, opts) ? bDropped.add(i) : bKeep.push(i)))
+  aAll.forEach((_, i) => (aDrop[i] ? aDropped.add(i) : aKeep.push(i)))
+  bAll.forEach((_, i) => (bDrop[i] ? bDropped.add(i) : bKeep.push(i)))
 
   const aKeys = aKeep.map((i) => normalizeLine(aAll[i], opts))
   const bKeys = bKeep.map((i) => normalizeLine(bAll[i], opts))
@@ -215,7 +217,7 @@ export function buildFileDiff(
 
   // 4) 무시했던 라인을 원래 위치에 되돌려 넣기 (표시 전용, 통계 제외)
   const drafts =
-    opts.ignoreBlankLines || opts.ignoreComments
+    aDropped.size > 0 || bDropped.size > 0
       ? reinsertDropped(core, aAll, bAll, aDropped, bDropped)
       : core
 

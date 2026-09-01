@@ -185,6 +185,53 @@ test('주석 무시', () => {
   assert.equal(on.stats.ignored, 1)
 })
 
+test('여러 줄 블록 주석을 통째로 무시한다', () => {
+  // 파일 머리말 주석. 가운데 줄들은 그 자체로는 주석 기호가 없거나(빈 줄),
+  // 붙어 있어도 한 줄만 봐서는 주석인지 알 수 없다.
+  const header = ['/*****', ' * 프로그램명 : ord_create.pc', '', ' * 작성일 : 2026-05-12', ' *****/']
+  const a = `${header.join('\n')}\nint x = 1;\n`
+  const b = 'int x = 1;\n'
+  const on = buildFileDiff(a, b, O({ ignoreComments: true }))
+  // 블록 안의 빈 줄도 주석의 일부다 (빈 줄 무시는 꺼져 있다)
+  assert.equal(on.stats.ignored, 5)
+  assert.equal(on.stats.changedLines, 0)
+  assert.equal(on.stats.lineSimilarity, 1)
+})
+
+test('블록이 닫힌 뒤 이어지는 코드는 무시하지 않는다', () => {
+  const a = '/* 설명\n   이어짐 */ int x = 1;\n'
+  const b = '/* 설명\n   이어짐 */ int y = 2;\n'
+  const on = buildFileDiff(a, b, O({ ignoreComments: true }))
+  assert.equal(on.stats.ignored, 1) // 첫 줄만 주석이다
+  assert.equal(on.stats.changedLines, 1) // 뒤에 붙은 코드는 살아서 차이가 잡힌다
+})
+
+test('SQL 한 줄 주석도 무시한다', () => {
+  const a = '-- 주문 건수를 센다\nSELECT 1 FROM DUAL;\n'
+  const b = 'SELECT 1 FROM DUAL;\n'
+  const on = buildFileDiff(a, b, O({ ignoreComments: true }))
+  assert.equal(on.stats.ignored, 1)
+  assert.equal(on.stats.lineSimilarity, 1)
+})
+
+test('#include 는 주석이 아니다 — 전처리기 지시자다', () => {
+  const on = buildFileDiff('#include <stdio.h>\n', '', O({ ignoreComments: true }))
+  assert.equal(on.stats.ignored, 0)
+  assert.equal(on.stats.removed, 1)
+})
+
+test('--i; 는 SQL 주석이 아니라 감소 연산자다', () => {
+  const on = buildFileDiff('--i;\n', '', O({ ignoreComments: true }))
+  assert.equal(on.stats.ignored, 0)
+  assert.equal(on.stats.removed, 1)
+})
+
+test('문자열 안의 주석 기호는 주석이 아니다', () => {
+  const on = buildFileDiff('strcpy(buf, "/* 진짜 주석 아님 */");\n', '', O({ ignoreComments: true }))
+  assert.equal(on.stats.ignored, 0)
+  assert.equal(on.stats.removed, 1)
+})
+
 test('무시 라인 되돌리기 후에도 행 번호가 원본과 1:1', () => {
   const a = 'a\n\nb\n// c\nd\n'
   const b = 'a\nb\nd\n'
