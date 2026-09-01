@@ -101,3 +101,32 @@ test('config.example.ts 는 저장소에 남아 있어야 한다 (gitignore 대�
   assert.ok(gitignore.includes('change/config.ts'), 'config.ts 는 무시 대상')
   assert.ok(!/^change\/config\.example\.ts$/m.test(gitignore), 'example 은 무시하면 안 된다')
 })
+
+test('템플릿의 제외 목록 구분자는 쉼표와 줄바꿈이다', () => {
+  const cfg = readRepositoryConfig(SCAN)
+  assert.ok(cfg.excludeSeparators.includes(','), '쉼표')
+  assert.ok(cfg.excludeSeparators.includes('\n'), '줄바꿈 — 한 줄에 하나씩 적는 것이 자연스럽다')
+})
+
+test('설정에 구분자가 없어도(예전 config.ts) 기본값으로 돈다', () => {
+  const cfg = readRepositoryConfig({ extensions: ['pc'], maxFileBytes: 100 })
+  assert.deepEqual([...cfg.excludeSeparators], [',', '\n'])
+
+  const blank = readRepositoryConfig({ ...SCAN, excludeSeparators: ['', '  '.trim()] })
+  assert.deepEqual([...blank.excludeSeparators], [',', '\n'], '빈 구분자만 있으면 기본값')
+})
+
+test('구분자를 바꾸면 그대로 쓴다', () => {
+  const cfg = readRepositoryConfig({ ...SCAN, excludeSeparators: [';'] })
+  assert.deepEqual([...cfg.excludeSeparators], [';'])
+})
+
+test('템플릿의 폴더 프리셋이 가리키는 제외 목록 파일이 실제로 있다', async () => {
+  const local = SOURCE_PRESETS.find((p) => p.source.mode === 'local')
+  assert.ok(local, '폴더 프리셋이 있어야 한다')
+
+  const target = local.source.excludeFile ?? ''
+  assert.ok(target, '템플릿은 제외 목록 파일을 가리켜 기능을 바로 보여준다')
+  const stat = await fs.stat(path.resolve(projectRoot, target))
+  assert.ok(stat.isFile(), `${target} 가 실제로 있어야 한다`)
+})

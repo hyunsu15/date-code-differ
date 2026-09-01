@@ -39,6 +39,12 @@ const LATER_ADDITIONS = [
     name: 'ENV_FOLDERS',
     hint: '환경 폴더(운영/테스트/개발) 고르기가 화면에 나오지 않습니다.',
   },
+  {
+    name: 'excludeFile',
+    hint:
+      '비교 목록에서 접어 둘 파일 목록을 쓰지 않는 상태입니다 ' +
+      '(화면 ⚙ 위치 의 "제외 목록 파일" 에서 경로만 넣어도 켜집니다).',
+  },
 ]
 
 if (await exists(target)) {
