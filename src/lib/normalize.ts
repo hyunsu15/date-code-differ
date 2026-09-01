@@ -11,6 +11,7 @@ export const DEFAULT_OPTIONS: DiffOptions = {
   ignoreCase: false,
   ignoreBlankLines: false,
   ignoreComments: false,
+  ignoreAuthor: false,
 }
 
 export function normalizeLine(line: string, opts: DiffOptions): string {
@@ -107,6 +108,17 @@ function stripComments(line: string, state: BlockState): string {
 }
 
 /**
+ * 작성자 표기 줄.
+ *
+ * 대개 머리말 주석 안에 있어서 앞에 붙은 주석 기호(`*` `/` `-` `#`)를 함께 넘긴다.
+ * 글자 사이를 벌려 쓰는 표기(`작 성 자`)가 흔해 사이 공백을 허용하고,
+ * 뒤에는 `:` 를 요구한다 — 그래야 코드에 우연히 들어간 낱말과 갈린다.
+ * (`@author` 는 뒤에 이름이 바로 오는 표기라 예외다.)
+ */
+const AUTHOR_LINE =
+  /^[\s*\/#-]*(?:(?:작\s*성\s*자|수\s*정\s*자|변\s*경\s*자|만\s*든\s*이|author|writer)\s*[:：]|@author\b)/i
+
+/**
  * 파일 전체를 훑어 **비교에서 뺄 줄**을 표시한다.
  *
  * 줄 하나만 보고 결정할 수 없어(여러 줄 주석) 파일 단위로 판정한다.
@@ -114,7 +126,7 @@ function stripComments(line: string, state: BlockState): string {
  */
 export function markDroppedLines(lines: readonly string[], opts: DiffOptions): boolean[] {
   const out = new Array<boolean>(lines.length).fill(false)
-  if (!opts.ignoreBlankLines && !opts.ignoreComments) return out
+  if (!opts.ignoreBlankLines && !opts.ignoreComments && !opts.ignoreAuthor) return out
 
   const state: BlockState = { inBlock: false }
 
@@ -132,7 +144,10 @@ export function markDroppedLines(lines: readonly string[], opts: DiffOptions): b
       comment = code.trim() === '' && (startedInBlock || !blank)
     }
 
-    out[i] = comment || (opts.ignoreBlankLines && blank)
+    out[i] =
+      comment ||
+      (opts.ignoreBlankLines && blank) ||
+      (opts.ignoreAuthor && AUTHOR_LINE.test(line))
   }
 
   return out

@@ -47,6 +47,7 @@ function optionParams(options: DiffOptions): Record<string, string> {
   if (options.ignoreCase) out.ignoreCase = '1'
   if (options.ignoreBlankLines) out.ignoreBlankLines = '1'
   if (options.ignoreComments) out.ignoreComments = '1'
+  if (options.ignoreAuthor) out.ignoreAuthor = '1'
   return out
 }
 

@@ -232,6 +232,46 @@ test('문자열 안의 주석 기호는 주석이 아니다', () => {
   assert.equal(on.stats.removed, 1)
 })
 
+test('작성자 줄을 무시한다 — 이름만 다르면 같은 파일로 본다', () => {
+  const a = ' * 작성자 : 홍길동\nint x = 1;\n'
+  const b = ' * 작성자 : 김철수\nint x = 1;\n'
+  const on = buildFileDiff(a, b, O({ ignoreAuthor: true }))
+  assert.equal(on.stats.ignored, 1) // 좌우 한 줄씩이 한 행으로 묶인다
+  assert.equal(on.stats.changedLines, 0)
+  assert.equal(on.stats.lineSimilarity, 1)
+})
+
+test('글자 사이를 벌려 쓴 표기도 잡는다', () => {
+  const a = ' * 작   성   자 : 홍길동\nint x = 1;\n'
+  const b = 'int x = 1;\n'
+  const on = buildFileDiff(a, b, O({ ignoreAuthor: true }))
+  assert.equal(on.stats.ignored, 1)
+  assert.equal(on.stats.changedLines, 0)
+})
+
+test('@author · 수정자 표기도 잡는다', () => {
+  const a = '// @author gdhong\n * 수 정 자 : 김철수\nint x = 1;\n'
+  const b = 'int x = 1;\n'
+  const on = buildFileDiff(a, b, O({ ignoreAuthor: true }))
+  assert.equal(on.stats.ignored, 2)
+  assert.equal(on.stats.changedLines, 0)
+})
+
+test('작성자 무시가 코드 줄을 건드리지는 않는다', () => {
+  const on = buildFileDiff('strcpy(author, "hong");\n', '', O({ ignoreAuthor: true }))
+  assert.equal(on.stats.ignored, 0)
+  assert.equal(on.stats.removed, 1)
+})
+
+test('주석을 남겨 둔 채 작성자 줄만 뺄 수 있다', () => {
+  const a = '/* 설명 */\n * 작성자 : 홍길동\nint x = 1;\n'
+  const b = '/* 설명 */\n * 작성자 : 김철수\nint x = 1;\n'
+  const on = buildFileDiff(a, b, O({ ignoreAuthor: true }))
+  // 주석 무시는 꺼져 있으므로 `/* 설명 */` 은 비교 대상으로 남아 일치로 잡힌다
+  assert.equal(on.stats.same, 2)
+  assert.equal(on.stats.ignored, 1)
+})
+
 test('무시 라인 되돌리기 후에도 행 번호가 원본과 1:1', () => {
   const a = 'a\n\nb\n// c\nd\n'
   const b = 'a\nb\nd\n'

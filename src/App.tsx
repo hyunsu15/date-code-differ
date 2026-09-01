@@ -785,6 +785,14 @@ export default function App() {
             />
             주석
           </label>
+          <label className="toggle" title="`작성자 : 홍길동` 처럼 이름을 적어 둔 줄을 비교에서 뺍니다">
+            <input
+              type="checkbox"
+              checked={options.ignoreAuthor}
+              onChange={setOpt('ignoreAuthor')}
+            />
+            작성자
+          </label>
         </div>
 
         <div className="divider" />
