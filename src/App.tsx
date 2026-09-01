@@ -253,6 +253,16 @@ export default function App() {
 
   const comparisonSeq = useRef(0)
 
+  /**
+   * 의존성에 목록 **객체**(`leftLoaded`)를 통째로 둔다 — `.source` 만 보면 새로고침이 먹지 않는다.
+   *
+   * 새로고침은 위치도 날짜도 그대로 둔 채 목록만 다시 읽는 일이라 `.source` 도 `left`/`right` 도
+   * 바뀌지 않는다. 그러면 이 effect 가 다시 돌지 않아 `loadSnapshots` 가 비워 둔 비교 결과가
+   * 빈 채로 남고, 그 상태에서 무시 체크박스를 건드려 `options` 가 바뀌어야 그제야 비교가 돌았다.
+   *
+   * 목록을 새로 넣는 곳은 `loadSnapshots` 뿐이고 거기서 매번 새 객체를 만들므로,
+   * 이렇게 넓혀도 비교가 더 자주 도는 일은 없다.
+   */
   useEffect(() => {
     // 목록이 아직 다른 위치의 것이면 기다린다 — 옛 날짜로 새 위치를 물어보게 된다
     if (leftLoaded.source !== leftSource || rightLoaded.source !== rightSource || !left || !right) {
@@ -274,7 +284,7 @@ export default function App() {
       .finally(() => {
         if (seq === comparisonSeq.current) setComparing(false)
       })
-  }, [leftLoaded.source, rightLoaded.source, leftSource, rightSource, left, right, options])
+  }, [leftLoaded, rightLoaded, leftSource, rightSource, left, right, options])
 
   /* ================================================================
      목록 필터링 & 선택
