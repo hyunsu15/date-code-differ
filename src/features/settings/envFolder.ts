@@ -68,32 +68,47 @@ export interface EnvPair {
 }
 
 /**
+ * 저장된 선택이 없을 때 좌우가 볼 환경 — **양쪽을 다르게 연다.**
+ *
+ * 이 도구를 여는 이유가 대개 "지금 운영과 테스트가 얼마나 벌어져 있나" 라서다.
+ * 한 환경의 두 날짜를 견주는 것도 흔하지만 그건 날짜 칸만 바꾸면 되는 반면,
+ * 환경을 갈라 보려면 양쪽을 다 바꿔야 해서 손이 더 간다.
+ *
+ * 왼쪽은 `change/config.ts` 의 `DEFAULT_ENV_ID`, 오른쪽은 목록에서 그 다음 환경이다.
+ * 환경이 하나뿐이면 양쪽 다 그것 — 그때는 예전처럼 한 환경의 두 날짜 비교가 된다.
+ */
+export function defaultEnvPair(): EnvPair {
+  const left = defaultEnvId()
+  return { left, right: ENV_FOLDERS.find((e) => e.id !== left)?.id ?? left }
+}
+
+/**
  * 저장값을 좌우 선택으로 바꾼다.
  *
  * 예전에는 환경 하나만 저장했다(`"prod"`). 그 값이 남아 있으면 **양쪽 다 그 환경**으로
  * 읽는다 — 기존 사용자가 열었을 때 화면이 예전과 똑같이 보이는 게 맞다.
  */
 export function parseEnvPair(raw: string | null): EnvPair {
-  if (!raw) return { left: defaultEnvId(), right: defaultEnvId() }
+  const fallback = defaultEnvPair()
+  if (!raw) return fallback
 
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)
   } catch {
-    // 예전 저장값 — 환경 id 문자열 하나
-    const id = parseEnvId(raw)
-    return { left: id, right: id }
+    // 예전 저장값 — 환경 id 문자열 하나. **아는 id 일 때만** 그 뜻으로 읽는다.
+    // 아무 문자열이나 첫 항목으로 떨어뜨리면, 망가진 값이 "양쪽 다 운영" 이라는
+    // 멀쩡해 보이는 선택으로 둔갑한다.
+    const legacy = ENV_FOLDERS.find((e) => e.id === raw)
+    return legacy ? { left: legacy.id, right: legacy.id } : fallback
   }
 
-  if (typeof parsed !== 'object' || parsed === null) {
-    const id = defaultEnvId()
-    return { left: id, right: id }
-  }
+  if (typeof parsed !== 'object' || parsed === null) return fallback
 
   const value = parsed as Record<string, unknown>
   return {
-    left: parseEnvId(typeof value.left === 'string' ? value.left : null),
-    right: parseEnvId(typeof value.right === 'string' ? value.right : null),
+    left: typeof value.left === 'string' ? envById(value.left).id : fallback.left,
+    right: typeof value.right === 'string' ? envById(value.right).id : fallback.right,
   }
 }
 
@@ -101,8 +116,7 @@ export function loadEnvPair(): EnvPair {
   try {
     return parseEnvPair(localStorage.getItem(STORAGE_KEY))
   } catch {
-    const id = defaultEnvId() // 저장소 접근 자체가 막힌 브라우저
-    return { left: id, right: id }
+    return defaultEnvPair() // 저장소 접근 자체가 막힌 브라우저
   }
 }
 

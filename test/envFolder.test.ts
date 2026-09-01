@@ -8,6 +8,7 @@ import { createSource, sourceKey } from '../server/source/resolve.ts'
 import { listDirsCommand } from '../server/source/sshCommands.ts'
 import {
   defaultEnvId,
+  defaultEnvPair,
   ENV_CHOICES,
   ENV_FOLDERS,
   envById,
@@ -15,6 +16,7 @@ import {
   envPath,
   joinRoot,
   parseEnvId,
+  parseEnvPair,
   withEnv,
 } from '../src/features/settings/envFolder.ts'
 import type { SourceConfig } from '../src/types.ts'
@@ -222,6 +224,49 @@ test('기본 환경도 반드시 실제 항목이다 — 첫 화면이 루트를
     'DEFAULT_ENV_ID 가 목록에 없어도 첫 항목으로 떨어져야 한다'
   )
   assert.ok(envPath(defaultEnvId()), '기본 환경의 경로는 비어 있지 않다')
+})
+
+/* ---------------- 좌우 기본 선택 ---------------- */
+
+test('처음 열면 좌우가 다른 환경을 본다 — 운영 ↔ 테스트', () => {
+  const pair = defaultEnvPair()
+  assert.equal(pair.left, defaultEnvId(), '왼쪽은 DEFAULT_ENV_ID')
+  if (ENV_FOLDERS.length < 2) {
+    assert.equal(pair.right, pair.left, '환경이 하나뿐이면 양쪽이 같다')
+    return
+  }
+  assert.notEqual(pair.right, pair.left)
+  assert.ok(
+    ENV_FOLDERS.some((e) => e.id === pair.right),
+    '오른쪽도 실제 항목이어야 한다'
+  )
+})
+
+test('저장된 게 없으면 좌우 기본 선택으로 연다', () => {
+  assert.deepEqual(parseEnvPair(null), defaultEnvPair())
+  assert.deepEqual(parseEnvPair(''), defaultEnvPair())
+  assert.deepEqual(parseEnvPair('{'), defaultEnvPair(), 'JSON 이 아니면 통째로 기본값')
+})
+
+test('저장된 좌우 선택을 그대로 되살린다', () => {
+  if (ENV_FOLDERS.length < 2) return
+  const [first, second] = ENV_FOLDERS
+  const saved = JSON.stringify({ left: second.id, right: first.id })
+  assert.deepEqual(parseEnvPair(saved), { left: second.id, right: first.id })
+})
+
+test('한쪽만 적혀 있으면 나머지는 기본값으로 채운다', () => {
+  if (ENV_FOLDERS.length < 2) return
+  const pair = parseEnvPair(JSON.stringify({ left: ENV_FOLDERS[1].id }))
+  assert.equal(pair.left, ENV_FOLDERS[1].id)
+  assert.equal(pair.right, defaultEnvPair().right)
+})
+
+test('예전 저장값(환경 하나)은 양쪽 다 그 환경으로 읽는다', () => {
+  if (ENV_FOLDERS.length === 0) return
+  const id = ENV_FOLDERS[0].id
+  // 화면이 예전과 똑같이 보이는 게 맞다 — 쓰던 사람이 놀라지 않게
+  assert.deepEqual(parseEnvPair(id), { left: id, right: id })
 })
 
 test('고른 환경은 실제로 붙일 경로를 돌려준다', () => {
