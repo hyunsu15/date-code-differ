@@ -8,6 +8,7 @@ import PackageSummary from './features/packages/PackageSummary.tsx'
 import SnapshotPicker from './features/snapshots/SnapshotPicker.tsx'
 import { EMPTY_SELECTION, normalizeSelection } from './features/snapshots/selection.ts'
 import SettingsPanel from './features/settings/SettingsPanel.tsx'
+import { loadDiffOptions, saveDiffOptions } from './features/settings/diffOptions.ts'
 import {
   ENV_CHOICES,
   envById,
@@ -27,7 +28,6 @@ import {
 import SummaryCard from './features/summary/SummaryCard.tsx'
 import { aggregateStats, buildFileDiff } from './lib/diffEngine.ts'
 import { num } from './lib/format.ts'
-import { DEFAULT_OPTIONS } from './lib/normalize.ts'
 import { searchRows } from './lib/search.ts'
 import type {
   CodeScope,
@@ -136,7 +136,8 @@ export default function App() {
   const [contentError, setContentError] = useState<string | null>(null)
 
   /* ---------------- 보기 옵션 ---------------- */
-  const [options, setOptions] = useState<DiffOptions>(DEFAULT_OPTIONS)
+  // 무시 옵션은 켜진 채로 시작하고 브라우저에 남는다 (features/settings/diffOptions.ts)
+  const [options, setOptions] = useState<DiffOptions>(loadDiffOptions)
   const [viewMode, setViewMode] = useState<ViewMode>('split')
   // 요구사항: 기본은 변경된 부분만. 사용자가 원하면 전체 코드로 전환한다.
   const [codeScope, setCodeScope] = useState<CodeScope>(
@@ -175,6 +176,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('cd-scope', codeScope)
   }, [codeScope])
+
+  useEffect(() => {
+    saveDiffOptions(options)
+  }, [options])
 
   // 코드 영역 글자 크기는 CSS 변수로 내려보낸다 (줄 높이도 같이 움직여야 행이 겹치지 않는다)
   useEffect(() => {
