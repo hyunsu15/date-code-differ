@@ -12,6 +12,7 @@ export const DEFAULT_OPTIONS: DiffOptions = {
   ignoreBlankLines: false,
   ignoreComments: false,
   ignoreAuthor: false,
+  ignoreDeadCode: false,
 }
 
 export function normalizeLine(line: string, opts: DiffOptions): string {
@@ -140,6 +141,96 @@ function stripComments(line: string, state: BlockState): string {
 const AUTHOR_LINE =
   /^[\s*\/#=|+~-]*(?:(?:(?:최\s*종|최\s*초)\s*)?(?:작\s*성\s*자|수\s*정\s*자|변\s*경\s*자|만\s*든\s*이)\s*[:：]|(?:author|writer)\s*[:：]|@author\b)/i
 
+/* ------------------------------------------------------------------
+   죽여 둔 코드
+   ------------------------------------------------------------------ */
+
+// 주석이 아니라 조건부 컴파일이지만, 조건이 **거짓으로 못박힌** 블록은 실행될 일이
+// 없어 주석과 같다. 블록 주석은 중첩이 안 되므로 여러 줄을 한꺼번에 죽일 때 이 관용구를 쓴다.
+//
+//     #if 0                 ← C · Pro*C
+//       old_call();
+//     #endif
+//
+//     $IF FALSE $THEN       ← Oracle PL/SQL (11g 이상의 조건부 컴파일)
+//       old_call();
+//     $END
+//
+// 빌드 옵션에 따라 살아나는 것(`#ifdef DEBUG` · `#if VERSION > 2`)은 건드리지 않는다.
+// 그건 죽은 코드가 아니라 "이 빌드에서만 안 도는" 코드다. `#ifdef NEVER` 처럼 이름으로만
+// 죽여 둔 것도 마찬가지다 — 그 이름이 정의돼 있는지 여기서는 알 길이 없다.
+
+/** 전처리기 지시자 한 줄. `#` 과 이름 사이는 벌어져 있어도 된다 (`#  if 0`) */
+const C_DIRECTIVE = /^\s*#\s*(if|ifdef|ifndef|elif|else|endif)\b(.*)$/
+
+/**
+ * 절대 참이 될 수 없는 `#if` 조건.
+ * `FALSE` 를 넣는 이유: `#if` 안에서 **정의되지 않은 이름은 0 으로 친다**.
+ * 그래서 `FALSE` 는 정의돼 있든(관례상 0) 없든 거짓이다.
+ */
+const NEVER_TRUE = /^\(*\s*(?:0+|FALSE|false)\s*\)*\s*$/
+
+/** PL/SQL 조건부 컴파일 — 죽은 시작 / 여는 것 / 닫는 것 / 다른 가지 */
+const PLSQL_DEAD_OPEN = /^\s*\$if\s+false\s+\$then\b/i
+const PLSQL_OPEN = /^\s*\$if\b/i
+const PLSQL_CLOSE = /^\s*\$end\b/i
+const PLSQL_BRANCH = /^\s*\$els(?:e|if)\b/i
+
+/** 죽은 구역을 지나는 중인지 */
+interface DeadState {
+  /** 구역을 연 문법. null 이면 죽은 구역이 아니다 */
+  kind: 'c' | 'plsql' | null
+  /** 그 안에서 다시 열린 조건 블록 수 — 닫는 짝을 맞추려고 센다 */
+  depth: number
+}
+
+/**
+ * 이 줄이 죽여 둔 구역에 속하는지 판정하고 상태를 갱신한다.
+ *
+ * @param code **주석을 걷어낸** 줄. 주석 안에 적힌 `#if 0` 에 속지 않기 위해서다.
+ */
+function markDead(code: string, state: DeadState): boolean {
+  if (state.kind === null) {
+    const directive = C_DIRECTIVE.exec(code)
+    if (directive && directive[1] === 'if' && NEVER_TRUE.test(directive[2].trim())) {
+      state.kind = 'c'
+      state.depth = 1
+      return true
+    }
+    if (PLSQL_DEAD_OPEN.test(code)) {
+      state.kind = 'plsql'
+      state.depth = 1
+      return true
+    }
+    return false
+  }
+
+  if (state.kind === 'c') {
+    const directive = C_DIRECTIVE.exec(code)
+    const name = directive?.[1]
+    if (name === 'if' || name === 'ifdef' || name === 'ifndef') state.depth++
+    else if (name === 'endif') {
+      state.depth--
+      if (state.depth === 0) state.kind = null
+    } else if (name && state.depth === 1) {
+      // `#else` · `#elif` — 여기부터는 살아 있을 수 있는 가지다
+      state.kind = null
+      state.depth = 0
+    }
+    return true
+  }
+
+  if (PLSQL_CLOSE.test(code)) {
+    state.depth--
+    if (state.depth === 0) state.kind = null
+  } else if (PLSQL_OPEN.test(code)) state.depth++
+  else if (state.depth === 1 && PLSQL_BRANCH.test(code)) {
+    state.kind = null
+    state.depth = 0
+  }
+  return true
+}
+
 /**
  * 파일 전체를 훑어 **비교에서 뺄 줄**을 표시한다.
  *
@@ -148,26 +239,36 @@ const AUTHOR_LINE =
  */
 export function markDroppedLines(lines: readonly string[], opts: DiffOptions): boolean[] {
   const out = new Array<boolean>(lines.length).fill(false)
-  if (!opts.ignoreBlankLines && !opts.ignoreComments && !opts.ignoreAuthor) return out
+  if (
+    !opts.ignoreBlankLines &&
+    !opts.ignoreComments &&
+    !opts.ignoreAuthor &&
+    !opts.ignoreDeadCode
+  ) {
+    return out
+  }
 
-  const state: BlockState = { inBlock: false, inLineComment: false }
+  const comments: BlockState = { inBlock: false, inLineComment: false }
+  const dead: DeadState = { kind: null, depth: 0 }
+  // 주석을 걷어내야 아는 것이 둘이다: 주석만 있는 줄인지, 그리고
+  // 이 줄의 `#if 0` 이 진짜 지시자인지 주석 안에 적힌 글자인지.
+  const needScan = opts.ignoreComments || opts.ignoreDeadCode
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
     const blank = line.trim() === ''
+    const startedInComment = comments.inBlock || comments.inLineComment
+    const code = needScan ? stripComments(line, comments) : line
 
-    let comment = false
-    if (opts.ignoreComments) {
-      const startedInComment = state.inBlock || state.inLineComment
-      const code = stripComments(line, state)
-      // 주석을 걷어내고 아무것도 안 남았을 때만 주석 줄이다.
-      // 앞줄에서 이어진 주석 안에서 시작한 줄은 빈 줄이어도 주석의 일부고,
-      // 블록이 줄 중간에서 닫히고 코드가 이어지면(`*/ x = 1;`) 주석 줄이 아니다.
-      comment = code.trim() === '' && (startedInComment || !blank)
-    }
+    // 주석을 걷어내고 아무것도 안 남았을 때만 주석 줄이다.
+    // 앞줄에서 이어진 주석 안에서 시작한 줄은 빈 줄이어도 주석의 일부고,
+    // 블록이 줄 중간에서 닫히고 코드가 이어지면(`*/ x = 1;`) 주석 줄이 아니다.
+    const comment = opts.ignoreComments && code.trim() === '' && (startedInComment || !blank)
 
     out[i] =
       comment ||
+      // 상태를 이어가야 하므로 옵션이 켜져 있으면 모든 줄에 대해 부른다
+      (opts.ignoreDeadCode && markDead(code, dead)) ||
       (opts.ignoreBlankLines && blank) ||
       (opts.ignoreAuthor && AUTHOR_LINE.test(line))
   }

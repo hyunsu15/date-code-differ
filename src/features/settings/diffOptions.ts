@@ -24,6 +24,7 @@ export const DEFAULT_DIFF_OPTIONS: DiffOptions = {
   ignoreBlankLines: true,
   ignoreComments: true,
   ignoreAuthor: true,
+  ignoreDeadCode: true,
 }
 
 /** 옵션 이름들 — 저장값을 훑을 때 기준이 된다 */

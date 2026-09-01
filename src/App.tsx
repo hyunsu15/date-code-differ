@@ -801,6 +801,17 @@ export default function App() {
             />
             작성자
           </label>
+          <label
+            className="toggle"
+            title="#if 0 … #endif 처럼 조건이 거짓으로 못박혀 실행되지 않는 블록을 비교에서 뺍니다 (#ifdef 는 그대로 비교합니다)"
+          >
+            <input
+              type="checkbox"
+              checked={options.ignoreDeadCode}
+              onChange={setOpt('ignoreDeadCode')}
+            />
+            죽은 코드
+          </label>
         </div>
 
         <div className="divider" />

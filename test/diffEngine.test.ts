@@ -322,6 +322,65 @@ test('주석을 남겨 둔 채 작성자 줄만 뺄 수 있다', () => {
   assert.equal(on.stats.ignored, 1)
 })
 
+/* ---------------- 죽여 둔 코드 ---------------- */
+
+test('#if 0 블록을 통째로 무시한다', () => {
+  const a = '#if 0\n  old_call();\n#endif\nint x = 1;\n'
+  const b = 'int x = 1;\n'
+  const on = buildFileDiff(a, b, O({ ignoreDeadCode: true }))
+  assert.equal(on.stats.ignored, 3)
+  assert.equal(on.stats.changedLines, 0)
+})
+
+test('#if 0 안에 다시 열린 조건도 세어 짝을 맞춘다', () => {
+  const a = '#if 0\n#ifdef A\n  a();\n#endif\n  b();\n#endif\nint x = 1;\n'
+  const b = 'int x = 1;\n'
+  const on = buildFileDiff(a, b, O({ ignoreDeadCode: true }))
+  assert.equal(on.stats.ignored, 6, '안쪽 #endif 에서 끝나면 안 된다')
+  assert.equal(on.stats.changedLines, 0)
+})
+
+test('#else 가지는 살아 있다', () => {
+  const a = '#if 0\n  dead();\n#else\n  live();\n#endif\n'
+  const b = '  live();\n#endif\n'
+  const on = buildFileDiff(a, b, O({ ignoreDeadCode: true }))
+  assert.equal(on.stats.ignored, 3, '#if 0 · 죽은 줄 · #else 까지만')
+  assert.equal(on.stats.changedLines, 0)
+})
+
+test('#ifdef 와 include 가드는 건드리지 않는다', () => {
+  const guard = '#ifndef ORD_H\n#define ORD_H\nint x = 1;\n#endif\n'
+  const dbg = '#ifdef DEBUG\n  log();\n#endif\n'
+  assert.equal(buildFileDiff(guard, '', O({ ignoreDeadCode: true })).stats.ignored, 0)
+  assert.equal(buildFileDiff(dbg, '', O({ ignoreDeadCode: true })).stats.ignored, 0)
+})
+
+test('#if 1 은 죽은 코드가 아니다', () => {
+  const on = buildFileDiff('#if 1\n  live();\n#endif\n', '', O({ ignoreDeadCode: true }))
+  assert.equal(on.stats.ignored, 0)
+  assert.equal(on.stats.removed, 3)
+})
+
+test('주석이나 문자열 안에 적힌 #if 0 에는 속지 않는다', () => {
+  const inComment = '/*\n#if 0\n*/\nint x = 1;\n'
+  const inString = 'puts("#if 0");\nint x = 1;\n'
+  const opts = O({ ignoreDeadCode: true, ignoreComments: true })
+  // 주석 줄 3개는 주석이라 빠지고, 그 뒤 코드는 살아 있어야 한다
+  assert.equal(buildFileDiff(inComment, 'int x = 1;\n', opts).stats.changedLines, 0)
+  assert.equal(buildFileDiff(inString, '', opts).stats.ignored, 0)
+})
+
+test('PL/SQL 의 $IF FALSE $THEN 도 같은 규칙이다', () => {
+  const a = '$IF FALSE $THEN\n  old();\n$END\nv := 1;\n'
+  const b = 'v := 1;\n'
+  const on = buildFileDiff(a, b, O({ ignoreDeadCode: true }))
+  assert.equal(on.stats.ignored, 3)
+  assert.equal(on.stats.changedLines, 0)
+  // 조건이 걸린 것은 그대로 둔다
+  const live = '$IF $$debug $THEN\n  log();\n$END\n'
+  assert.equal(buildFileDiff(live, '', O({ ignoreDeadCode: true })).stats.ignored, 0)
+})
+
 test('무시 라인 되돌리기 후에도 행 번호가 원본과 1:1', () => {
   const a = 'a\n\nb\n// c\nd\n'
   const b = 'a\nb\nd\n'

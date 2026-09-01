@@ -54,6 +54,7 @@ function cacheKey(left: SideRef, right: SideRef, opts: DiffOptions): string {
     opts.ignoreBlankLines,
     opts.ignoreComments,
     opts.ignoreAuthor,
+    opts.ignoreDeadCode,
   ]
     .map((b) => (b ? '1' : '0'))
     .join('')

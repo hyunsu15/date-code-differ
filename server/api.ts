@@ -52,6 +52,7 @@ function readDiffOptions(query: URLSearchParams): DiffOptions {
     ignoreBlankLines: queryFlag(query, 'ignoreBlankLines'),
     ignoreComments: queryFlag(query, 'ignoreComments'),
     ignoreAuthor: queryFlag(query, 'ignoreAuthor'),
+    ignoreDeadCode: queryFlag(query, 'ignoreDeadCode'),
   }
 }
 

@@ -13,11 +13,12 @@ import { DEFAULT_OPTIONS } from '../src/lib/normalize.ts'
 
 /* ---------------- 기본값 ---------------- */
 
-test('처음 열면 공백·빈 줄·주석·작성자가 켜져 있다', () => {
+test('처음 열면 공백·빈 줄·주석·작성자·죽은 코드가 켜져 있다', () => {
   assert.equal(DEFAULT_DIFF_OPTIONS.ignoreWhitespace, true)
   assert.equal(DEFAULT_DIFF_OPTIONS.ignoreBlankLines, true)
   assert.equal(DEFAULT_DIFF_OPTIONS.ignoreComments, true)
   assert.equal(DEFAULT_DIFF_OPTIONS.ignoreAuthor, true)
+  assert.equal(DEFAULT_DIFF_OPTIONS.ignoreDeadCode, true)
 })
 
 test('대소문자만 꺼져 있다 — C 에서는 다른 이름이다', () => {

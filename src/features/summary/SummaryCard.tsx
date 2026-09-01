@@ -130,7 +130,7 @@ export default function SummaryCard({
 
       {stats.ignored > 0 && (
         <div style={{ marginTop: 8, fontSize: 11, color: 'var(--faint)' }}>
-          비교 제외 {num(stats.ignored)}줄 (빈 줄/주석/작성자 무시 옵션)
+          비교 제외 {num(stats.ignored)}줄 (빈 줄·주석·작성자·죽은 코드 무시 옵션)
         </div>
       )}
     </div>
