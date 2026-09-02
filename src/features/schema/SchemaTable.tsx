@@ -253,6 +253,18 @@ function Value({ cell }: { cell: SchemaCell | null }) {
     <>
       {cell.badge && <span className="kbadge">{cell.badge}</span>}
       <span className="text">{cell.value || '—'}</span>
+      {/*
+        타입과 붙여 쓰지 않고 칩으로 뗀다 — 한 덩어리로 읽히면 타입이 바뀐 것인지
+        널 여부가 바뀐 것인지 눈으로 가르기 어렵다.
+      */}
+      {cell.note && (
+        <span
+          className="nn"
+          title={'널(빈 값)을 넣을 수 없는 컬럼입니다.\n이 표시가 붙거나 풀린 것도 변경으로 잡습니다.'}
+        >
+          {cell.note}
+        </span>
+      )}
     </>
   )
 }

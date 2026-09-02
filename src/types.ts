@@ -564,10 +564,19 @@ export type SchemaItemStatus = FileStatus
 
 /** 한 줄의 한쪽 값 */
 export interface SchemaCell {
-  /** 종류 배지 — `기본키` · `유니크`. 컬럼 섹션에서는 null */
+  /** 값 **앞**에 붙는 종류 배지 — `기본키` · `유니크`. 컬럼 섹션에서는 null */
   badge: string | null
-  /** 표시값 — `VARCHAR2(20) NN` · `ORD_NO, ORD_SEQ` */
+  /** 표시값 — `VARCHAR2(20)` · `ORD_NO, ORD_SEQ` */
   value: string
+  /**
+   * 값 **뒤**에 붙는 표시 — 지금은 `NOT NULL` 뿐이다.
+   *
+   * 값에 이어 붙이지 않고 자리를 갈라 둔다. 이어 붙이면 타입과 한 덩어리로 읽혀
+   * "무엇이 바뀌었는지" 를 눈으로 가르기 어렵고, 화면이 따로 꾸미거나 설명을
+   * 달아 줄 수도 없다. **좌우 비교에는 값과 똑같이 들어간다** — NOT NULL 이
+   * 붙거나 풀린 것도 엄연한 변경이다.
+   */
+  note?: string | null
 }
 
 /** 좌우를 이름으로 짝지은 한 줄 (컬럼·제약·인덱스가 같은 모양을 쓴다) */

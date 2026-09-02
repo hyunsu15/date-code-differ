@@ -26,10 +26,20 @@ import {
   type TableSchema,
 } from '../types.ts'
 
-/** 컬럼 한 줄의 표시값 — 타입과 NOT NULL 여부를 함께 견준다 */
+/** 널을 허용하지 않는 컬럼에 붙는 표시 */
+export const NOT_NULL = 'NOT NULL'
+
+/**
+ * 컬럼 한 줄의 표시값 — 타입과 NOT NULL 여부를 함께 견준다.
+ *
+ * **줄여 쓰지 않는다.** `NN` 처럼 적으면 읽는 사람이 한 번 더 해독해야 하고,
+ * 이 화면을 처음 보는 사람은 그게 무슨 뜻인지 물어봐야 한다.
+ *
+ * 널 허용은 아무것도 적지 않는다 — 그쪽이 보통이라, 둘 다 적으면 화면의 절반이
+ * 늘 같은 글자로 차고 정작 눈에 띄어야 할 NOT NULL 이 묻힌다.
+ */
 export function columnCell(column: SchemaColumn): SchemaCell {
-  // 널 허용이 보통이라 표시하지 않는다. 눈에 띄어야 하는 쪽은 NOT NULL 이다
-  return { badge: null, value: column.nullable ? column.type : `${column.type} NN` }
+  return { badge: null, value: column.type, note: column.nullable ? null : NOT_NULL }
 }
 
 export function constraintCell(constraint: SchemaConstraint): SchemaCell {
@@ -46,7 +56,12 @@ export function indexCell(index: SchemaIndex): SchemaCell {
 }
 
 const sameCell = (a: SchemaCell | null, b: SchemaCell | null): boolean =>
-  a !== null && b !== null && a.badge === b.badge && a.value === b.value
+  a !== null &&
+  b !== null &&
+  a.badge === b.badge &&
+  a.value === b.value &&
+  // NOT NULL 이 붙거나 풀린 것도 변경이다 — 값과 똑같이 본다
+  (a.note ?? null) === (b.note ?? null)
 
 function statusOf(left: SchemaCell | null, right: SchemaCell | null): SchemaItemStatus {
   if (left === null) return 'added'

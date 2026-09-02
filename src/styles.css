@@ -1821,3 +1821,29 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   .srow .sval.both { grid-column: 2 / 3; }
   .srow .sexcl { grid-row: 1; grid-column: 3; }
 }
+
+/*
+  NOT NULL 표시 — 타입 뒤에 칩으로 뗀다.
+
+  타입과 붙여 쓰면(`VARCHAR2(20) NOT NULL`) 한 덩어리로 읽혀서, 타입이 바뀐 것인지
+  널 여부가 바뀐 것인지 눈으로 가르기 어렵다. 줄여 쓰지도 않는다 — `NN` 은 읽는 사람이
+  한 번 더 해독해야 한다.
+*/
+.srow .nn {
+  padding: 0 5px;
+  border-radius: 4px;
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  background: var(--border-soft);
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: help;
+}
+
+/* 바뀐 줄에서는 이 표시도 함께 읽혀야 한다 */
+.srow.s-modified .nn,
+.srow.s-added .nn,
+.srow.s-removed .nn { background: rgba(139, 148, 158, 0.22); color: var(--text); }

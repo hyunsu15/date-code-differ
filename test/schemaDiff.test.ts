@@ -90,8 +90,11 @@ test('NOT NULL 이 붙거나 풀린 것도 변경이다', () => {
   )
   const row = tableNamed(tables, 'TB_ORD').sections.column.rows[0]
   assert.equal(row.status, 'modified')
+  // 타입은 그대로고 NOT NULL 만 붙었다 — 값과 표시를 갈라 두므로 둘을 따로 본다
   assert.equal(row.left?.value, 'VARCHAR2(200)')
-  assert.equal(row.right?.value, 'VARCHAR2(200) NN')
+  assert.equal(row.left?.note ?? null, null)
+  assert.equal(row.right?.value, 'VARCHAR2(200)')
+  assert.equal(row.right?.note, 'NOT NULL')
 })
 
 /* ---------------- 함정 3 · 여러 줄이 하나로 묶여 견줘진다 ---------------- */
