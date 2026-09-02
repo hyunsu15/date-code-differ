@@ -8,10 +8,17 @@ import {
   type SideRef,
 } from './comparisonService.ts'
 import { clearExcludeCache, loadExcludeList } from './excludeRules.ts'
+import {
+  clearSchemaCache,
+  compareSchemaSnapshots,
+  listSchemaSnapshots,
+  type SchemaSideRef,
+} from './schemaService.ts'
 import { createSource, sourceKey } from './source/resolve.ts'
 import { SourceError, type SnapshotSource } from './source/types.ts'
 import type {
   DiffOptions,
+  SchemaSnapshotListResponse,
   SnapshotListResponse,
   SourceConfig,
   TextEncodingName,
@@ -67,9 +74,18 @@ function readDiffOptions(query: URLSearchParams): DiffOptions {
 export function readSourceConfig(query: URLSearchParams): SourceConfig {
   const encoding = readEncoding(query.get('encoding'))
   const excludeFile = query.get('excludeFile') ?? ''
+  const schemaRoot = query.get('schemaRoot') ?? ''
+  const schemaExcludeFile = query.get('schemaExcludeFile') ?? ''
 
   if (query.get('mode') !== 'ssh') {
-    return { mode: 'local', root: query.get('root') ?? '', encoding, excludeFile }
+    return {
+      mode: 'local',
+      root: query.get('root') ?? '',
+      encoding,
+      excludeFile,
+      schemaRoot,
+      schemaExcludeFile,
+    }
   }
   const port = Number(query.get('port'))
   return {
@@ -81,6 +97,8 @@ export function readSourceConfig(query: URLSearchParams): SourceConfig {
     root: query.get('root') ?? '',
     encoding,
     excludeFile,
+    schemaRoot,
+    schemaExcludeFile,
   }
 }
 
@@ -176,6 +194,7 @@ export function createHandler(cfg: RepositoryConfig, projectRoot: string): ApiHa
             clearComparisonCache()
             // 제외 규칙 파일도 다시 읽는다 — 새로고침은 "지금 상태로 맞춰라" 라는 뜻이다
             clearExcludeCache()
+            clearSchemaCache()
           }
           const resolved = resolve()
           if (!resolved) return
@@ -185,6 +204,77 @@ export function createHandler(cfg: RepositoryConfig, projectRoot: string): ApiHa
             items: await listSnapshots(resolved.source, cfg, resolved.key),
           }
           sendJson(res, 200, body)
+          return
+        }
+
+        if (pathname === '/schemas/snapshots') {
+          const resolved = resolve()
+          if (!resolved) return
+
+          const root = (readSourceConfig(query).schemaRoot ?? '').trim()
+          const leftEnv = query.get('leftEnv') ?? ''
+          const rightEnv = query.get('rightEnv') ?? ''
+
+          // 좌우가 같은 환경이면 한 번만 읽는다 (SSH 왕복 하나를 아낀다)
+          const left = await listSchemaSnapshots(resolved.source, root, leftEnv, cfg.schema)
+          const body: SchemaSnapshotListResponse = {
+            root,
+            left,
+            right:
+              leftEnv === rightEnv
+                ? left
+                : await listSchemaSnapshots(resolved.source, root, rightEnv, cfg.schema),
+          }
+          sendJson(res, 200, body)
+          return
+        }
+
+        if (pathname === '/schemas') {
+          const left = requiredParam(query, 'left')
+          const right = requiredParam(query, 'right')
+          if (!left || !right) {
+            sendError(res, 400, 'MISSING_PARAM', 'left, right 파라미터가 모두 필요합니다.')
+            return
+          }
+          const resolved = resolve()
+          if (!resolved) return
+
+          // 스키마는 위치가 `root` 와 무관하다 — 환경은 파일 경로에 붙지 루트를 가르지 않는다.
+          // 그래서 좌우가 같은 소스(같은 접속)를 쓰고, 갈리는 것은 환경 폴더와 날짜뿐이다.
+          const base = {
+            source: resolved.source,
+            key: resolved.key,
+            root: (readSourceConfig(query).schemaRoot ?? '').trim(),
+          }
+          const leftSide: SchemaSideRef = {
+            ...base,
+            env: query.get('leftEnv') ?? '',
+            date: left,
+          }
+          const rightSide: SchemaSideRef = {
+            ...base,
+            env: query.get('rightEnv') ?? '',
+            date: right,
+          }
+
+          // 팀 공용 제외 규칙은 **읽기만** 하고 적용은 화면이 한다 —
+          // 내 목록·종류 토글과 한 자리에서 세어야 요약 숫자가 갈리지 않는다.
+          const excludeState = await loadExcludeList(
+            resolved.source,
+            resolved.key,
+            readSourceConfig(query).schemaExcludeFile,
+            cfg.excludeSeparators
+          )
+
+          sendJson(
+            res,
+            200,
+            await compareSchemaSnapshots(leftSide, rightSide, cfg.schema, {
+              file: excludeState.file,
+              rules: [...excludeState.list.patterns],
+              error: excludeState.error,
+            })
+          )
           return
         }
 

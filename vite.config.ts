@@ -2,6 +2,14 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import codeRepository from './server/codeRepositoryPlugin.ts'
 import { SCAN } from './change/config.ts'
+import * as userConfig from './change/config.ts'
+import type { SchemaConfig } from './src/types.ts'
+
+/**
+ * 스키마 설정은 나중에 생겼다 — 예전에 만들어 둔 `change/config.ts` 에는 없을 수 있다.
+ * 없으면 기본 규칙으로 읽는다 (설정 하나 때문에 개발 서버가 안 뜨면 안 된다).
+ */
+const SCHEMA = (userConfig as { SCHEMA?: Partial<SchemaConfig> }).SCHEMA
 
 // 설정은 전부 `change/config.ts` 에 있다 (.env 는 쓰지 않는다).
 export default defineConfig({
@@ -9,7 +17,7 @@ export default defineConfig({
   // 도메인 루트가 아닌 하위 경로에 배포했을 때 브라우저가 엉뚱한 곳을 찾고,
   // 정적 서버가 대신 index.html(text/html)을 돌려줘 "MIME type is not supported" 로 죽는다.
   base: './',
-  plugins: [react(), codeRepository(SCAN)],
+  plugins: [react(), codeRepository(SCAN, SCHEMA)],
   server: {
     port: 5181,
     open: false,

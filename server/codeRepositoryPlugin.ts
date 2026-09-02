@@ -1,7 +1,7 @@
 import type { Plugin } from 'vite'
 import { API_BASE, createHandler } from './api.ts'
 import { readRepositoryConfig, type RepositoryConfig } from './snapshotRepository.ts'
-import type { ScanConfig } from '../src/types.ts'
+import type { SchemaConfig, ScanConfig } from '../src/types.ts'
 
 /**
  * 개발·미리보기 서버에 읽기 전용 API 를 붙이는 **Vite 어댑터**.
@@ -12,9 +12,13 @@ import type { ScanConfig } from '../src/types.ts'
  * `server.middlewares.use(API_BASE, ...)` 로 마운트하면 connect 가 접두사를 잘라 주므로
  * 핸들러는 `/snapshots` 같은 나머지 경로만 본다.
  *
- * @param scan `change/config.ts` 의 훑기 설정
+ * @param scan   `change/config.ts` 의 훑기 설정
+ * @param schema `change/config.ts` 의 스키마 설정. 없으면 기본 규칙
  */
-export default function codeRepository(scan: Partial<ScanConfig>): Plugin {
+export default function codeRepository(
+  scan: Partial<ScanConfig>,
+  schema?: Partial<SchemaConfig>
+): Plugin {
   let cfg: RepositoryConfig
   let projectRoot = process.cwd()
 
@@ -22,7 +26,7 @@ export default function codeRepository(scan: Partial<ScanConfig>): Plugin {
     name: 'code-diff-repository',
 
     configResolved(config) {
-      cfg = readRepositoryConfig(scan)
+      cfg = readRepositoryConfig(scan, schema)
       projectRoot = config.root
     },
 

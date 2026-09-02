@@ -9,6 +9,7 @@ import {
   listDirsCommand,
   listFilesCommand,
   parseDirListing,
+  parseFileListing,
   groupBySnapshot,
   parseFileEntries,
   parseFileStream,
@@ -125,6 +126,17 @@ export class SshSource implements SnapshotSource {
     const stream = await this.run(readTextFileCommand(target))
     const [body] = parseFileStream(stream ?? new Uint8Array(), 1)
     return body === null ? null : decodeText(body, this.conn.encoding)
+  }
+
+  /**
+   * 스냅샷 밖 폴더의 파일 이름 목록 (스키마 덤프 폴더).
+   *
+   * 폴더가 없으면 원격 `ls` 가 실패하는데, 그것이 **정상 흐름**이다 — 설정을 아직
+   * 안 채웠거나 그 환경에 스키마를 안 올린 경우다. 빈 목록으로 돌려준다.
+   */
+  async listFileNames(dir: string): Promise<string[]> {
+    const out = await this.run(listDirsCommand(dir), { allowExitFailure: true })
+    return out === null ? [] : parseFileListing(this.decode(out))
   }
 
   /** 원격 바이트를 설정한 인코딩으로 옮긴다. 파일명도 같은 규칙으로 읽는다 */

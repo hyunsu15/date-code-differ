@@ -252,6 +252,22 @@ export function parseDirListing(stdout: string): string[] {
 }
 
 /**
+ * `ls -1F` 출력에서 **파일 이름만** 뽑는다 (`parseDirListing` 의 반대).
+ *
+ * `-F` 가 붙이는 표시로 종류를 가른다: 디렉터리 `/`, 심볼릭 링크 `@`,
+ * 실행파일 `*`, FIFO `|`, 소켓 `=`. 앞의 둘은 버리고 나머지는 표시만 떼어 낸다.
+ * 심볼릭 링크는 로컬 구현과 마찬가지로 따라가지 않는다.
+ */
+export function parseFileListing(stdout: string): string[] {
+  return stdout
+    .split('\n')
+    .map((line) => line.replace(/\r$/, ''))
+    .filter((line) => line !== '' && !line.endsWith('/') && !line.endsWith('@'))
+    .map((line) => line.replace(/[*|=]$/, ''))
+    .filter((name) => name !== '' && name !== '.' && name !== '..')
+}
+
+/**
  * `cksum` 출력을 상대 경로 + 크기 + 체크섬으로 바꾼다.
  *
  * 각 줄은 `<CRC> <바이트수> ./<상대경로>` 다.

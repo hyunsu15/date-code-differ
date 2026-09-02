@@ -5,6 +5,8 @@ import { API_BASE, createHandler } from './api.ts'
 import { sendError } from './http.ts'
 import { readRepositoryConfig } from './snapshotRepository.ts'
 import { SCAN } from '../change/config.ts'
+import * as userConfig from '../change/config.ts'
+import type { SchemaConfig } from '../src/types.ts'
 
 /**
  * 독립 실행 서버 — **한 포트에서 화면(정적 파일)과 API 를 함께** 준다.
@@ -53,7 +55,10 @@ const MIME: Record<string, string> = {
   '.woff2': 'font/woff2',
 }
 
-const api = createHandler(readRepositoryConfig(SCAN), PROJECT_ROOT)
+/** 나중에 생긴 설정이라 예전 config.ts 에는 없을 수 있다 (vite.config.ts 와 같은 규칙) */
+const SCHEMA = (userConfig as { SCHEMA?: Partial<SchemaConfig> }).SCHEMA
+
+const api = createHandler(readRepositoryConfig(SCAN, SCHEMA), PROJECT_ROOT)
 
 /** `/api/v1` 로 시작하는가 — `/api/v1abc` 같은 남의 경로는 걸리지 않게 경계를 본다 */
 function isApiRequest(url: string): boolean {

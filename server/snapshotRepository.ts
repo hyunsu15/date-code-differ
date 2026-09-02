@@ -6,7 +6,8 @@ import {
   snapshotSortKey,
 } from '../src/lib/fileTypes.ts'
 import type { RawFile, SnapshotSource } from './source/types.ts'
-import type { ScanConfig, Snapshot } from '../src/types.ts'
+import { readSchemaConfig } from './schemaService.ts'
+import type { SchemaConfig, ScanConfig, Snapshot } from '../src/types.ts'
 
 /**
  * 소스(로컬 폴더 / SSH 원격) 위에서 스냅샷과 파일 목록을 만든다.
@@ -18,12 +19,17 @@ export interface RepositoryConfig {
   maxFileBytes: number
   /** 제외 목록 파일에서 항목을 가르는 글자들 (`src/lib/excludeList.ts` 가 쓴다) */
   excludeSeparators: readonly string[]
+  /** 데이터 스키마 덤프의 이름 규칙·줄 형식 (`server/schemaService.ts` 가 쓴다) */
+  schema: SchemaConfig
 }
 
 const DEFAULT_MAX_FILE_BYTES = 2_000_000
 
 /** `change/config.ts` 의 `SCAN` 을 실제 훑기 설정으로 바꾼다 */
-export function readRepositoryConfig(scan: Partial<ScanConfig> = {}): RepositoryConfig {
+export function readRepositoryConfig(
+  scan: Partial<ScanConfig> = {},
+  schema?: Partial<SchemaConfig>
+): RepositoryConfig {
   const max = Number(scan.maxFileBytes)
   const separators = scan.excludeSeparators?.filter((s) => typeof s === 'string' && s.length > 0)
   return {
@@ -32,6 +38,8 @@ export function readRepositoryConfig(scan: Partial<ScanConfig> = {}): Repository
     // 나중에 생긴 설정이라 없을 수 있다 — 그때는 쉼표와 줄바꿈 둘 다 받는다
     excludeSeparators:
       separators && separators.length > 0 ? separators : DEFAULT_EXCLUDE_SEPARATORS,
+    // 스키마 설정도 나중에 생겼다 — 없으면 기본 규칙으로 읽는다
+    schema: readSchemaConfig(schema),
   }
 }
 

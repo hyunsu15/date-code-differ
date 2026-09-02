@@ -90,6 +90,21 @@ export class LocalSource implements SnapshotSource {
     }
   }
 
+  /**
+   * 루트 밖 폴더의 파일 이름 목록. 경로 규칙은 `readTextFile` 과 같다.
+   * 없는 폴더는 빈 배열로 돌려준다 — 설정을 아직 안 채운 상태가 정상 흐름이다.
+   */
+  async listFileNames(dir: string): Promise<string[]> {
+    try {
+      const entries = await fs.readdir(path.resolve(this.projectRoot, dir), {
+        withFileTypes: true,
+      })
+      return entries.filter((e) => e.isFile()).map((e) => e.name)
+    } catch {
+      return []
+    }
+  }
+
   private async readOne(snapshotId: string, relPath: string): Promise<string | null> {
     const base = this.resolveSnapshot(snapshotId)
     if (!base) return null
