@@ -295,6 +295,10 @@ class CountingSource implements SnapshotSource {
   readTextFile(path: string): Promise<string | null> {
     return this.inner.readTextFile(path)
   }
+
+  listFileNames(dir: string): Promise<string[]> {
+    return this.inner.listFileNames(dir)
+  }
 }
 
 test('내용이 같은 파일은 한쪽만 읽는다 — 결과는 전부 읽었을 때와 같다', async () => {

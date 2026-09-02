@@ -39,6 +39,33 @@ interface SourceBase {
    * 형식과 판정 규칙은 `src/lib/excludeList.ts` 가 갖고 있다.
    */
   excludeFile?: string
+  /**
+   * 데이터 스키마 덤프가 쌓이는 폴더. 비우면 화면에 스키마 비교가 뜨지 않는다.
+   *
+   * **`excludeFile` 과 같은 규칙으로 `root` 와 무관하게 푼다** — 스키마는 소스와
+   * 다른 자리에 쌓이기 때문이다. 아래는 환경 폴더로 갈리고, 그 안에 날짜별 파일이
+   * 하나씩 있다 (이름 규칙은 `change/config.ts` 의 `SCHEMA.fileName`).
+   *
+   *     <schemaRoot>/prod/snapshot_prod_2026-09-01.txt
+   *
+   * 접속 정보(호스트·계정·키·인코딩)는 이 프리셋의 것을 그대로 쓴다 — 스키마가
+   * 대개 소스와 같은 서버에 있어, 경로 한 줄만 더 적으면 되게 한다.
+   */
+  schemaRoot?: string
+  /**
+   * 스키마 비교에서 접어 둘 대상이 적힌 텍스트 파일. 비우면 접지 않는다.
+   *
+   * `excludeFile` 과 같은 자리·같은 규칙으로 푼다 (`root` 와 무관). 문법도 같다 —
+   * 다만 대상이 파일 경로가 아니라 **테이블과 그 안의 이름**이다.
+   *
+   *     TB_ORD_BAK         그 테이블과 그 아래 전부
+   *     TB_ORD.ORD_MEMO    그 테이블의 그 컬럼만
+   *     *.REG_DTM          모든 테이블의 그 컬럼 (감사 컬럼)
+   *     IX_*_TMP           이름이 맞는 인덱스·제약
+   *
+   * 판정은 `src/features/schema/schemaExclude.ts` 가 `excludeList.ts` 에 맡긴다.
+   */
+  schemaExcludeFile?: string
 }
 
 export interface LocalSourceConfig extends SourceBase {
@@ -73,6 +100,8 @@ export const DEFAULT_LOCAL_SOURCE: LocalSourceConfig = {
   root: '',
   encoding: 'auto',
   excludeFile: '',
+  schemaRoot: '',
+  schemaExcludeFile: '',
 }
 
 export const DEFAULT_SSH_SOURCE: SshSourceConfig = {
@@ -84,6 +113,8 @@ export const DEFAULT_SSH_SOURCE: SshSourceConfig = {
   root: '',
   encoding: 'auto',
   excludeFile: '',
+  schemaRoot: '',
+  schemaExcludeFile: '',
 }
 
 /**
@@ -181,6 +212,14 @@ export interface ComparedFile {
   excluded: boolean
   /** 걸린 규칙의 원문 (`*_bak.pc`). 접히지 않았으면 null */
   excludedBy: string | null
+  /**
+   * **내 제외 목록** 때문에 접힌 것 (서버의 규칙 파일이 아니라).
+   *
+   * 서버는 이 값을 채우지 않는다 — 화면이 응답을 받은 뒤 얹는다
+   * (`features/settings/localExclude.ts`). 어느 목록을 고쳐야 펼쳐지는지
+   * 알려면 둘을 갈라 둬야 한다.
+   */
+  excludedLocal?: boolean
 }
 
 /** 패키지 단위 변경 요약 — 화면 상단 밴드에 쓴다 */
@@ -429,3 +468,251 @@ export type Theme = 'dark' | 'light'
  * `changed` = 변경된 부분만 (기본값), `full` = 파일 전체
  */
 export type CodeScope = 'changed' | 'full'
+
+/* ================================================================
+   데이터 스키마 — 테이블 정의 스냅샷
+
+   소스와 **다른 자리**에 쌓이는 Oracle 딕셔너리 덤프를 좌우로 견준다.
+   파일 하나가 스냅샷 한 벌이고, 줄마다 앞머리 `[…]` 로 종류를 밝힌다.
+
+     [COLUMN],TB_ORD,ORD_NO,VARCHAR2,20,,,N
+     [CONSTRAINT],TB_ORD,PK_ORD,P,ORD_NO,1
+     [INDEX],TB_ORD,IX_ORD_01,NONUNIQUE,ORD_DT,1
+
+   형식과 판정 규칙은 `src/lib/schemaParse.ts`, 좌우 대조는 `src/lib/schemaDiff.ts`.
+   ================================================================ */
+
+/** 덤프 한 줄의 앞머리 `[…]` — 어떤 종류의 레코드인지 */
+export type SchemaKind = 'column' | 'constraint' | 'index'
+
+export const SCHEMA_KINDS: readonly SchemaKind[] = ['column', 'constraint', 'index']
+
+export const SCHEMA_KIND_LABEL: Record<SchemaKind, string> = {
+  column: '컬럼',
+  constraint: '제약',
+  index: '인덱스',
+}
+
+/**
+ * 제약 종류 (`USER_CONSTRAINTS.CONSTRAINT_TYPE`).
+ * 모르는 값은 `other` 로 모아 두고 원문을 배지에 그대로 보여준다.
+ */
+export type ConstraintKind = 'P' | 'R' | 'U' | 'C' | 'other'
+
+/** 컬럼 하나 */
+export interface SchemaColumn {
+  name: string
+  /**
+   * 화면에 보여줄 타입 문자열 — `VARCHAR2(20)` · `NUMBER(15,2)` · `DATE`.
+   *
+   * `DATA_LENGTH` 를 그대로 두지 않는다. 그 값은 문자형에서만 뜻이 있고
+   * NUMBER 는 늘 22, DATE 는 늘 7 이라 비교하면 없는 변경이 생긴다
+   * (`schemaParse.formatType`).
+   */
+  type: string
+  /** `NULLABLE` 이 `Y` 인가. `N` 이면 NOT NULL 이다 (Oracle 딕셔너리 규약) */
+  nullable: boolean
+}
+
+/** 제약 하나 — 컬럼별로 흩어진 여러 줄을 `POSITION` 순으로 묶은 결과 */
+export interface SchemaConstraint {
+  name: string
+  kind: ConstraintKind
+  /** 딕셔너리에 적힌 원문 (`P` · `R` …). 모르는 값을 배지에 그대로 쓴다 */
+  rawKind: string
+  /** `POSITION` 순으로 정렬한 컬럼들 */
+  columns: string[]
+  /** 이름을 DB 가 붙인 것 (`SYS_C0011234`) — 데이터베이스마다 달라 비교에서 접는다 */
+  systemNamed: boolean
+}
+
+/** 인덱스 하나 — 제약과 같은 방식으로 `COLUMN_POSITION` 순으로 묶는다 */
+export interface SchemaIndex {
+  name: string
+  unique: boolean
+  columns: string[]
+  systemNamed: boolean
+}
+
+export interface TableSchema {
+  name: string
+  columns: SchemaColumn[]
+  constraints: SchemaConstraint[]
+  indexes: SchemaIndex[]
+}
+
+/** 스키마 파일 한 벌을 읽어 들인 결과 */
+export interface SchemaSnapshot {
+  /** 파일 맨 위 `#` 설명 줄들을 이어 붙인 것. 없으면 빈 문자열 */
+  description: string
+  tables: TableSchema[]
+  /** 종류를 못 알아본 줄 수. 조용히 넘어가지 않고 화면에 남긴다 */
+  malformed: number
+  /**
+   * 못 읽은 줄의 **원문 앞부분** 몇 개.
+   *
+   * 수만 알려 주면 구분자가 틀린 것인지 앞머리 태그가 다른 것인지 화면에서 가릴 수가
+   * 없다 — 둘 다 "테이블 0개 · 못 읽은 줄 N" 으로 똑같이 보인다. 실물을 한 줄만 보여
+   * 주면 원인이 바로 드러난다.
+   */
+  malformedSample: string[]
+}
+
+/* ---------------- 좌우 대조 결과 ---------------- */
+
+export type SchemaItemStatus = FileStatus
+
+/** 한 줄의 한쪽 값 */
+export interface SchemaCell {
+  /** 종류 배지 — `기본키` · `유니크`. 컬럼 섹션에서는 null */
+  badge: string | null
+  /** 표시값 — `VARCHAR2(20) NN` · `ORD_NO, ORD_SEQ` */
+  value: string
+}
+
+/** 좌우를 이름으로 짝지은 한 줄 (컬럼·제약·인덱스가 같은 모양을 쓴다) */
+export interface SchemaRow {
+  name: string
+  status: SchemaItemStatus
+  /** 왼쪽에 없으면 null (신규) */
+  left: SchemaCell | null
+  /** 오른쪽에 없으면 null (삭제) */
+  right: SchemaCell | null
+  /** DB 가 이름을 붙인 것 — 기본으로 접는다 */
+  systemNamed: boolean
+  /**
+   * 제외 목록에 걸려 **접어 둔** 줄.
+   *
+   * 서버는 채우지 않는다 — 화면이 응답을 받은 뒤 얹는다
+   * (`features/schema/schemaExclude.ts`). 대조는 그대로 했고 목록에서만 접은 것이라,
+   * 펼치면 값이 그대로 보인다.
+   */
+  excluded?: boolean
+  /** 걸린 규칙의 원문 (`*.REG_DTM`) */
+  excludedBy?: string | null
+  /** 팀 공용 파일이 아니라 **내 목록** 때문에 접힌 것 */
+  excludedLocal?: boolean
+}
+
+export interface SchemaSection {
+  kind: SchemaKind
+  /** 접지 않은 줄들 */
+  rows: SchemaRow[]
+  added: number
+  removed: number
+  modified: number
+  /** 양쪽 통틀어 센 줄 수 (동일 포함, 접은 것 제외) */
+  total: number
+  /**
+   * 시스템 이름이라 접어 둔 줄 수.
+   * 조용히 지우지 않고 섹션 머리에 남긴다 — 접은 자리에 진짜 변경이 섞여도 알 수 있게.
+   */
+  systemHidden: number
+  /**
+   * 제외 목록에 걸려 접어 둔 줄 수. `systemHidden` 과 따로 센다 —
+   * 접힌 이유가 다르면 고칠 자리도 다르다 (설정 정규식 vs 제외 목록).
+   */
+  excludedHidden: number
+  /** 접힌 줄 중 **실제로 바뀐** 수. 0 이 아니면 눈에 띄게 알린다 */
+  excludedChanged: number
+}
+
+/** 테이블 하나의 좌우 대조 */
+export interface TableDiff {
+  name: string
+  status: SchemaItemStatus
+  sections: Record<SchemaKind, SchemaSection>
+  /**
+   * 기본키가 바뀌었는지.
+   * 빈도는 낮고 위험은 크다 — 목록에서 따로 눈에 띄게 알린다.
+   */
+  primaryKeyChanged: boolean
+  /** 변경이 있는 종류들 — 상단 밴드의 종류 필터가 이 값을 본다 */
+  changedKinds: SchemaKind[]
+  /** 제외 목록에 걸려 접어 둔 테이블 (`SchemaRow.excluded` 와 같은 규칙) */
+  excluded?: boolean
+  excludedBy?: string | null
+  excludedLocal?: boolean
+}
+
+/**
+ * 팀이 함께 쓰는 스키마 제외 규칙.
+ *
+ * **규칙만 실어 보내고 적용은 화면이 한다.** 내 목록·종류 토글과 합쳐 한 자리에서
+ * 세어야 요약 숫자가 갈리지 않는다 (`features/schema/schemaExclude.ts`).
+ * 파일을 읽는 일만 서버 몫이다 — 로컬일 수도 원격일 수도 있어서다.
+ */
+export interface SchemaExcludeInfo {
+  /** 설정에 적힌 규칙 파일 경로. 비어 있으면 이 기능을 쓰지 않는 것 */
+  file: string
+  /** 읽어 들인 규칙 원문들 */
+  rules: string[]
+  /** 규칙 파일을 읽지 못했을 때의 안내. 조용히 넘어가지 않는다 */
+  error: string | null
+}
+
+/** `GET /api/v1/schemas` 응답 */
+export interface SchemaComparisonResponse {
+  /** 실제로 읽은 좌우 스키마 날짜 (고른 날짜와 다를 수 있다) */
+  left: string
+  right: string
+  /** 파일 맨 위 `#` 설명 — 좌우가 다르면 그것도 변경이다 */
+  leftDescription: string
+  rightDescription: string
+  tables: TableDiff[]
+  /** 양쪽에서 읽지 못한 줄 수 합 */
+  malformed: number
+  /** 못 읽은 줄의 원문 앞부분 (좌우 통틀어 몇 개) */
+  malformedSample: string[]
+  /** 못 읽은 원인 추정. 짚을 수 없으면 빈 문자열 */
+  malformedHint: string
+  /** 팀 공용 제외 규칙 — 화면이 내 목록과 합쳐 적용한다 */
+  exclude: SchemaExcludeInfo
+}
+
+/** 스키마 파일 하나 (= 날짜 한 벌) */
+export interface SchemaSnapshotRef {
+  /** 파일명에서 뽑은 날짜 (`2026-09-01`) — 목록의 식별자 */
+  id: string
+  /** 정렬용 키. 숫자만 남긴 것 */
+  sortKey: string
+}
+
+/** `GET /api/v1/schemas/snapshots` 응답 */
+export interface SchemaSnapshotListResponse {
+  /** 화면에 보여줄 스키마 폴더 경로. 설정이 비어 있으면 빈 문자열 */
+  root: string
+  /** 환경 폴더별 날짜 목록 */
+  left: SchemaSnapshotRef[]
+  right: SchemaSnapshotRef[]
+}
+
+/**
+ * `change/config.ts` 의 스키마 설정 — 파일 이름 규칙과 줄 형식.
+ *
+ * **위치는 여기가 아니라 프리셋의 `schemaRoot` 에 둔다.** 위치는 고치면 바로 반영되고
+ * 형식은 서버를 다시 시작해야 하므로, 반영 시점이 다른 둘을 섞지 않는다.
+ */
+export interface SchemaConfig {
+  /**
+   * `<schemaRoot>/<환경폴더>/` 아래 파일 이름 규칙.
+   * `{env}` 는 환경 폴더명, `{date}` 는 날짜 — **날짜 목록을 여기서 뽑는다.**
+   */
+  fileName: string
+  /** 한 줄의 필드를 가르는 글자 */
+  separator: string
+  /**
+   * 이 정규식에 걸리는 이름은 DB 가 자동으로 붙인 것으로 본다.
+   *
+   * Oracle 은 `NOT NULL` 컬럼마다 `SYS_C0011234` 같은 제약을 만드는데, 번호가
+   * 데이터베이스마다 달라 **운영 ↔ 테스트에서 내용이 같아도 전부 변경으로 뜬다.**
+   * 비우면 접지 않는다.
+   */
+  systemNamePattern: string
+}
+
+export const DEFAULT_SCHEMA_CONFIG: SchemaConfig = {
+  fileName: 'snapshot_{env}_{date}.txt',
+  separator: ',',
+  systemNamePattern: '^(SYS_|BIN[$])',
+}

@@ -21,7 +21,14 @@ import { DEFAULT_SSH_SOURCE, type SourceConfig } from '../src/types.ts'
  * 저장값은 사용자가 직접 고칠 수 있으므로 믿지 않고 한 겹 검증한다.
  */
 
-const LOCAL: SourceConfig = { mode: 'local', root: 'D:/rel', encoding: 'auto', excludeFile: '' }
+const LOCAL: SourceConfig = {
+  mode: 'local',
+  root: 'D:/rel',
+  encoding: 'auto',
+  excludeFile: '',
+  schemaRoot: '',
+  schemaExcludeFile: '',
+}
 
 /* ---------------- 프리셋 ---------------- */
 
@@ -113,6 +120,8 @@ test('타입이 어긋난 값은 빈 문자열·null 로 바로잡는다', () =>
     root: '',
     encoding: 'auto',
     excludeFile: '',
+    schemaRoot: '',
+    schemaExcludeFile: '',
   })
 })
 
@@ -123,6 +132,8 @@ test('모르는 mode 는 로컬로 본다', () => {
     root: '/x',
     encoding: 'auto',
     excludeFile: '',
+    schemaRoot: '',
+    schemaExcludeFile: '',
   })
 })
 

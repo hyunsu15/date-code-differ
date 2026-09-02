@@ -374,12 +374,16 @@ test('mode 가 없으면 로컬로 본다 (설정 저장 전에도 동작해야 
     root: '',
     encoding: 'auto',
     excludeFile: '',
+    schemaRoot: '',
+    schemaExcludeFile: '',
   })
   assert.deepEqual(readSourceConfig(q('root=D%3A%2Frel')), {
     mode: 'local',
     root: 'D:/rel',
     encoding: 'auto',
     excludeFile: '',
+    schemaRoot: '',
+    schemaExcludeFile: '',
   })
 })
 
@@ -404,6 +408,8 @@ test('ssh 파라미터를 설정으로 읽는다', () => {
     root: '/rel',
     encoding: 'auto',
     excludeFile: '',
+    schemaRoot: '',
+    schemaExcludeFile: '',
   })
 })
 
