@@ -18,7 +18,7 @@
    (npm install · dev · build · test 앞에서). 이미 있으면 덮어쓰지 않습니다.
    ================================================================== */
 
-import type { EnvFolder, ScanConfig, SourcePreset } from '../src/types.ts'
+import type { EnvFolder, SchemaConfig, ScanConfig, SourcePreset } from '../src/types.ts'
 
 /* ------------------------------------------------------------------
    비교 대상 위치 프리셋
@@ -63,6 +63,21 @@ export const SOURCE_PRESETS: SourcePreset[] = [
        * 자세한 형식은 아래 로컬 프리셋의 설명을 보세요 (형식은 두 모드가 같습니다).
        */
       excludeFile: '',
+      /**
+       * 데이터 스키마 덤프가 쌓이는 **원격 폴더**. 비우면 스키마 비교가 안 보입니다.
+       * 예: '/data/db-schema'  ·  '~/db-schema'
+       *
+       * 소스(root)와 다른 자리에 쌓이므로 따로 적습니다. 접속 정보(호스트·계정·키)는
+       * 이 프리셋의 것을 그대로 씁니다 — 같은 서버면 경로 한 줄이면 됩니다.
+       * 자세한 배치는 아래 로컬 프리셋의 설명을 보세요 (두 모드가 같습니다).
+       */
+      schemaRoot: '',
+      /**
+       * 스키마 비교에서 접어 둘 것들이 적힌 **원격 텍스트 파일**. 비우면 접지 않습니다.
+       *
+       * 자세한 형식은 아래 로컬 프리셋의 설명을 보세요 (형식은 두 모드가 같습니다).
+       */
+      schemaExcludeFile: '',
     },
   },
 
@@ -99,6 +114,40 @@ export const SOURCE_PRESETS: SourcePreset[] = [
        * 이 파일을 고친 뒤에는 화면의 **새로고침**을 누르면 다시 읽습니다.
        */
       excludeFile: './sample-code/exclude.txt',
+      /**
+       * 데이터 스키마 덤프가 쌓이는 폴더. 비우면 스키마 비교가 안 보입니다.
+       * 상대 경로는 이 프로젝트 폴더 기준입니다 (`root` 와 같은 규칙).
+       *
+       * 아래는 **환경 폴더로 갈리고**, 그 안에 날짜별 파일이 하나씩 있습니다.
+       * 폴더 이름은 위 ENV_FOLDERS 의 `path` 를 그대로 씁니다.
+       *
+       *   sample-schema/
+       *     prod/  snapshot_prod_2026-08-01.txt
+       *            snapshot_prod_2026-09-01.txt
+       *     test/  snapshot_test_2026-09-01.txt
+       *
+       * 파일 이름 규칙은 맨 아래 `SCHEMA.fileName` 에서 정합니다 —
+       * **날짜 목록을 그 규칙으로 파일명에서 뽑습니다.**
+       */
+      schemaRoot: './sample-schema',
+      /**
+       * 스키마 비교에서 **접어 둘** 것들이 적힌 텍스트 파일. 비우면 접지 않습니다.
+       * 상대 경로는 이 프로젝트 폴더 기준입니다 (`root` 와 같은 규칙).
+       *
+       * 문법은 위 `excludeFile` 과 같고, 대상만 파일 경로가 아니라
+       * **테이블과 그 안의 이름**입니다.
+       *
+       *   TB_ORD_BAK        그 테이블과 그 아래 전부
+       *   TB_ORD.ORD_MEMO   그 테이블의 그 컬럼만
+       *   *.REG_DTM         모든 테이블의 그 컬럼 (감사 컬럼)
+       *   IX_*_TMP          이름이 맞는 인덱스·제약
+       *
+       * 여기 적어도 대조는 그대로 합니다 — 목록에서 접힐 뿐이고,
+       * 접은 것 중에 바뀐 것이 있으면 화면이 그 수를 함께 알립니다.
+       *
+       * 이 파일을 고친 뒤에는 화면의 **새로고침**을 누르면 다시 읽습니다.
+       */
+      schemaExcludeFile: './sample-schema/exclude.txt',
     },
   },
 ]
@@ -194,3 +243,51 @@ export const SCAN: ScanConfig = {
    */
   excludeSeparators: [',', '\n'],
 }
+
+/* ------------------------------------------------------------------
+   데이터 스키마 — 덤프 파일의 이름 규칙과 줄 형식
+
+   **위치는 여기가 아니라 위 프리셋의 `schemaRoot` 에 있습니다.**
+   위치는 고치면 바로 반영되고 형식은 서버를 다시 시작해야 하므로 자리를 갈라 뒀습니다.
+
+   덤프는 Oracle 딕셔너리를 그대로 흘린 텍스트입니다. 줄마다 앞머리로 종류를 밝히고
+   나머지를 구분자로 가릅니다. 종류마다 첫 줄에 헤더를 두면 **필드 순서를 파일에서
+   읽으므로**, SELECT 목록이 바뀌어도 이 도구를 고칠 필요가 없습니다.
+
+     [COLUMN],TABLE_NAME,COLUMN_NAME,DATA_TYPE,DATA_LENGTH,DATA_PRECISION,DATA_SCALE,NULLABLE
+     [COLUMN],TB_ORD,ORD_NO,VARCHAR2,20,,,N
+     [CONSTRAINT],TB_ORD,PK_ORD,P,ORD_NO,1
+     [INDEX],TB_ORD,IX_ORD_01,NONUNIQUE,ORD_DT,1
+
+   고친 뒤에는 개발 서버를 다시 시작해야 반영됩니다.
+   ------------------------------------------------------------------ */
+
+export const SCHEMA: SchemaConfig = {
+  /**
+   * `<schemaRoot>/<환경폴더>/` 아래 파일 이름 규칙.
+   *
+   * `{env}` 는 환경 폴더명(위 ENV_FOLDERS 의 `path`), `{date}` 는 날짜입니다.
+   * **날짜 목록을 이 규칙으로 파일명에서 뽑습니다** — 소스처럼 날짜 폴더를 훑지 않습니다.
+   *
+   *   'snapshot_{env}_{date}.txt'  →  snapshot_prod_2026-09-01.txt
+   *   '{date}.txt'                 →  2026-09-01.txt
+   */
+  fileName: 'snapshot_{env}_{date}.txt',
+
+  /** 한 줄의 필드를 가르는 글자. 덤프가 파이프로 나오면 '|' 로 바꾸세요 */
+  separator: ',',
+
+  /**
+   * 이 정규식에 걸리는 이름은 **DB 가 자동으로 붙인 것**으로 보고 목록에서 접습니다.
+   *
+   * Oracle 은 NOT NULL 컬럼마다 `SYS_C0011234` 같은 제약을 만드는데, 그 번호가
+   * **데이터베이스마다 다릅니다.** 접지 않으면 운영 ↔ 테스트를 견줄 때 내용이 똑같아도
+   * 제약 수백 개가 전부 "변경" 으로 떠서 화면을 못 씁니다.
+   * (NOT NULL 여부는 이미 컬럼 줄의 NULLABLE 에 있으니 잃는 정보도 없습니다)
+   *
+   * 접은 수는 화면에 그대로 남습니다 — 조용히 지우지 않습니다.
+   * 전부 보고 싶으면 빈 문자열로 두세요.
+   */
+  systemNamePattern: '^(SYS_|BIN[$])',
+}
+
