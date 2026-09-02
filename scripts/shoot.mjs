@@ -32,6 +32,7 @@ const SHOTS = [
   ['05-files', 'files'],
   ['06-diff', 'diff'],
   ['07-exclude', 'exclude'],
+  ['08-schema', 'schema'],
 ]
 
 /**

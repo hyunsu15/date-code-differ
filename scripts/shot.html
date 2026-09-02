@@ -45,7 +45,7 @@
       const params = new URLSearchParams(location.search)
       const scene = params.get('scene') ?? 'overview'
 
-      const seed = (env = { left: 'prod', right: 'prod' }, excludeFile = '') => {
+      const seed = (env = { left: 'prod', right: 'prod' }, excludeFile = '', mode = 'code') => {
         // 프리셋을 고른 상태로 두면 **저장값이 아니라 프리셋의 현재 값**이 쓰인다
         // (features/settings/sourceSettings.ts). 제외 목록을 넣을 때는 풀어 둬야 먹는다.
         localStorage.setItem(
@@ -58,6 +58,11 @@
         localStorage.setItem('cd-env', JSON.stringify(env))
         localStorage.setItem('cd-theme', 'dark')
         localStorage.setItem('cd-scope', 'changed')
+        // 앞선 촬영이 남긴 값이 다음 장면으로 새면 엉뚱한 화면을 찍는다 — 매번 못 박는다
+        localStorage.setItem('cd-mode', mode)
+        localStorage.removeItem('cd-my-exclude')
+        localStorage.removeItem('cd-my-exclude-schema')
+        localStorage.removeItem('cd-schema-kinds')
       }
 
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -156,6 +161,16 @@
           mark(doc, '.filelist .file-item', 3, 4)
         },
 
+        /* 8. 스키마 비교 — 어느 영역이 무엇인지 */
+        async schema(doc) {
+          mark(doc, '.mode-tabs', 1, 4)
+          mark(doc, '.snapshot-picker', 2)
+          mark(doc, '.schema-band .package-chips', 3, 4)
+          mark(doc, byText(doc, '.optionbar .group', '종류'), 4, 4)
+          mark(doc, '.filelist', 5, 4)
+          mark(doc, '.schema-view .schema-section', 6, 4)
+        },
+
         /* 7. 제외 목록으로 접어 둔 파일 — 펼친 상태로 찍는다 */
         async exclude(doc) {
           const toggle = await until(() => doc.querySelector('.excl-toggle'))
@@ -178,14 +193,18 @@
 
       const ENV = {
         crossenv: { left: 'prod', right: 'test' },
+        schema: { left: 'prod', right: 'test' },
       }
+
+      /** 스키마 화면을 찍는 장면들 — 씨앗과 기다릴 것이 다르다 */
+      const SCHEMA_SCENES = new Set(['schema'])
 
       /** 제외 기능은 규칙 파일을 가리켜야 보인다 — 저장소에 함께 든 견본을 쓴다 */
       const EXCLUDE = {
         exclude: './sample-code/exclude.txt',
       }
 
-      seed(ENV[scene], EXCLUDE[scene] ?? '')
+      seed(ENV[scene], EXCLUDE[scene] ?? '', SCHEMA_SCENES.has(scene) ? 'schema' : 'code')
 
       const frame = document.getElementById('app')
       frame.src = '/'
@@ -193,12 +212,16 @@
       await new Promise((r) => frame.addEventListener('load', r, { once: true }))
       const doc = frame.contentDocument
 
-      // 비교가 끝나 파일 목록이 뜰 때까지 기다린다
+      // 비교가 끝나 목록이 뜰 때까지 기다린다 (스키마는 테이블 목록이다)
       await until(() => doc.querySelector('.filelist .file-item'))
 
-      // 좌우가 모두 차 있는 파일을 연다.
-      // 삭제된 파일을 고르면 오른쪽 칸이 비어서, 설명서에 실으면 "왜 한쪽이 비었지" 로 읽힌다.
-      if (scene !== 'settings') {
+      if (SCHEMA_SCENES.has(scene)) {
+        // 표가 그려질 때까지 기다린다 — 목록만 뜬 상태로 찍으면 오른쪽이 비어 보인다
+        await until(() => doc.querySelector('.schema-rows .srow'))
+        await sleep(600)
+      } else if (scene !== 'settings') {
+        // 좌우가 모두 차 있는 파일을 연다.
+        // 삭제된 파일을 고르면 오른쪽 칸이 비어서, 설명서에 실으면 "왜 한쪽이 비었지" 로 읽힌다.
         const items = [...doc.querySelectorAll('.filelist .file-item')]
         const changed = items.find((e) => e.querySelector('.badge.s-modified')) ?? items[0]
         changed?.click()
