@@ -1540,7 +1540,9 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .schema-rows {
   padding: 0 16px 10px;
   font-family: var(--mono);
-  font-size: 12.5px;
+  /* 코드 화면과 같은 값을 쓴다 — 옵션바의 글자 버튼이 둘 다 움직인다 */
+  font-size: var(--code-size);
+  line-height: var(--code-lh);
 }
 
 /*

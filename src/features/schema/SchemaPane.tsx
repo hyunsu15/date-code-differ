@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { fetchSchemaComparison, fetchSchemaSnapshots } from '../../api/client.ts'
+import { fetchSchemaComparison } from '../../api/client.ts'
 import SchemaBand from './SchemaBand.tsx'
 import SchemaTable from './SchemaTable.tsx'
 import TableList from './TableList.tsx'
-import { filterTables, matchSchemaDate, summarize } from './schemaView.ts'
+import { filterTables, summarize } from './schemaView.ts'
 import {
   applySchemaExclude,
   loadKindToggles,
@@ -12,6 +12,7 @@ import {
   type KindToggles,
 } from './schemaExclude.ts'
 import { envById, envColorClass, envPath } from '../settings/envFolder.ts'
+import FontSize from '../settings/FontSize.tsx'
 import { num } from '../../lib/format.ts'
 import { pushToast } from '../../lib/toast.ts'
 import {
@@ -19,8 +20,6 @@ import {
   SCHEMA_KIND_LABEL,
   type SchemaComparisonResponse,
   type SchemaKind,
-  type SchemaSnapshotRef,
-  type Side,
   type SourceConfig,
 } from '../../types.ts'
 
@@ -32,23 +31,38 @@ interface SchemaPaneProps {
   source: SourceConfig
   leftEnvId: string
   rightEnvId: string
-  /** 화면 위에서 고른 코드 날짜 — 스키마는 여기에 맞춰 따라간다 */
+  /**
+   * 헤더 컨트롤이 고른 **스키마 날짜**.
+   *
+   * 목록을 읽고 고르는 일은 App 이 한다 — 코드와 같은 자리에서 고르게 하려고
+   * 컨트롤을 하나로 합쳤다. 여기서는 받은 날짜로 대조만 한다.
+   */
   leftDate: string
   rightDate: string
+  /** 날짜 목록을 한 번이라도 받았는지 — 아직이면 "없다" 대신 "읽는 중" 을 보여준다 */
+  snapshotsLoaded: boolean
+  listError: string | null
+  loadingList: boolean
   showSidebar: boolean
   onToggleSidebar: () => void
   /** 내 스키마 제외 목록 원문 (App 이 들고 ⚙ 위치와 나눠 쓴다) */
   myExclude: string
   onChangeMyExclude: (text: string) => void
+  /** 글자 크기는 코드 화면과 나눠 쓴다 (`features/settings/FontSize.tsx`) */
+  codeFontSize: number
+  onChangeFontSize: (next: number) => void
 }
 
 /**
- * 스키마 비교 화면 — 위쪽 좌우 선택(환경·날짜)을 **코드 화면과 그대로 나눠 쓴다.**
+ * 스키마 비교 화면.
  *
- * 고르는 자리를 두 벌 두지 않는다. 대신 스키마 덤프는 배포와 주기가 달라 고른 날짜에
- * 딱 맞는 파일이 없는 것이 보통이라, **그 시점 이하로 가장 가까운 스키마**를 자동으로
- * 고르고 무엇을 골랐는지 밴드에 적는다 (`schemaView.matchSchemaDate`).
- * 자동 선택이 마음에 안 들면 밴드에서 바로 바꿀 수 있다.
+ * **좌우 선택(환경·날짜)은 코드 화면과 같은 헤더 컨트롤이 다룬다.** 고르는 자리를 두 벌
+ * 두면 탭을 옮길 때마다 다시 골라야 하고, 같은 일을 하는 컨트롤이 살짝 다르게 생겨
+ * 어색해진다. 목록만 모드에 따라 갈아 끼운다 — 스키마 덤프는 배포와 주기가 달라
+ * 날짜가 코드와 다르기 때문이다.
+ *
+ * 이 화면이 갖는 것은 아래 3단(밴드·옵션바·본문)뿐이다. 코드의 무시 옵션(공백·주석)은
+ * 스키마에 하나도 안 맞고, 스키마에는 종류 토글이 따로 있다.
  *
  * 접기는 세 겹이다 — 팀 규칙 파일 · 내 목록 · 종류 토글 (`schemaExclude.ts`).
  * 셋을 한 자리에서 얹고 숫자를 다시 내야 요약과 목록이 어긋나지 않는다.
@@ -59,27 +73,19 @@ export default function SchemaPane({
   rightEnvId,
   leftDate,
   rightDate,
+  snapshotsLoaded,
+  listError,
+  loadingList,
   showSidebar,
   onToggleSidebar,
   myExclude,
   onChangeMyExclude,
+  codeFontSize,
+  onChangeFontSize,
 }: SchemaPaneProps) {
   const leftEnv = envPath(leftEnvId)
   const rightEnv = envPath(rightEnvId)
   const configured = (source.schemaRoot ?? '').trim() !== ''
-
-  const [snapshots, setSnapshots] = useState<{
-    left: SchemaSnapshotRef[]
-    right: SchemaSnapshotRef[]
-  }>({ left: [], right: [] })
-  const [listError, setListError] = useState<string | null>(null)
-  const [loadingList, setLoadingList] = useState(false)
-
-  /** 사용자가 직접 고른 날짜. null 이면 코드 날짜를 따라간다 (기본) */
-  const [picked, setPicked] = useState<{ left: string | null; right: string | null }>({
-    left: null,
-    right: null,
-  })
 
   const [comparison, setComparison] = useState<SchemaComparisonResponse | null>(null)
   const [compareError, setCompareError] = useState<string | null>(null)
@@ -97,40 +103,10 @@ export default function SchemaPane({
     saveKindToggles(kinds)
   }, [kinds])
 
-  /* ---------------- 날짜 목록 ---------------- */
-
-  useEffect(() => {
-    if (!configured) {
-      setSnapshots({ left: [], right: [] })
-      return
-    }
-    let alive = true
-    setLoadingList(true)
-    setListError(null)
-
-    fetchSchemaSnapshots(source, leftEnv, rightEnv)
-      .then((res) => {
-        if (!alive) return
-        setSnapshots({ left: res.left, right: res.right })
-        // 환경을 바꾸면 직접 고른 값은 풀어 준다 — 그 환경에 없는 날짜일 수 있다
-        setPicked({ left: null, right: null })
-      })
-      .catch((e: Error) => alive && setListError(e.message))
-      .finally(() => alive && setLoadingList(false))
-
-    return () => {
-      alive = false
-    }
-  }, [source, leftEnv, rightEnv, configured])
-
-  /** 실제로 읽을 스키마 날짜 — 직접 고른 것이 있으면 그것, 없으면 코드 날짜에 맞춘다 */
-  const leftPick = picked.left ?? matchSchemaDate(snapshots.left, leftDate)
-  const rightPick = picked.right ?? matchSchemaDate(snapshots.right, rightDate)
-
   /* ---------------- 대조 ---------------- */
 
   useEffect(() => {
-    if (!configured || !leftPick || !rightPick) {
+    if (!configured || !leftDate || !rightDate) {
       setComparison(null)
       return
     }
@@ -138,7 +114,7 @@ export default function SchemaPane({
     setComparing(true)
     setCompareError(null)
 
-    fetchSchemaComparison(source, leftEnv, rightEnv, leftPick, rightPick)
+    fetchSchemaComparison(source, leftEnv, rightEnv, leftDate, rightDate)
       .then((res) => alive && setComparison(res))
       .catch((e: Error) => {
         if (!alive) return
@@ -150,7 +126,7 @@ export default function SchemaPane({
     return () => {
       alive = false
     }
-  }, [source, leftEnv, rightEnv, leftPick, rightPick, configured])
+  }, [source, leftEnv, rightEnv, leftDate, rightDate, configured])
 
   /*
     실패를 알림으로 띄운다.
@@ -219,10 +195,6 @@ export default function SchemaPane({
     if (selected && selected.name !== selectedName) setSelectedName(selected.name)
   }, [selected, selectedName])
 
-  const onPickDate = useCallback((side: Side, date: string) => {
-    setPicked((prev) => ({ ...prev, [side]: date }))
-  }, [])
-
   /** 목록·표에서 한 번 눌러 접거나 펼친다 */
   const toggleExclude = useCallback(
     (table: string, member?: string) => {
@@ -230,14 +202,6 @@ export default function SchemaPane({
     },
     [myExclude, onChangeMyExclude]
   )
-
-  const sideOf = (envId: string, wanted: string, actual: string, items: SchemaSnapshotRef[]) => ({
-    envLabel: envById(envId).label,
-    tagClass: envColorClass(envId),
-    wanted,
-    actual,
-    items,
-  })
 
   /** 접힌 것 전부 — 테이블과 줄을 합쳐 센다 */
   const hidden = excluded.excludedTables + excluded.excludedRows
@@ -262,23 +226,43 @@ export default function SchemaPane({
     )
   }
 
+  /* ---------------- 날짜를 못 고른 경우 ---------------- */
+
+  if (!leftDate || !rightDate) {
+    return (
+      <div className="empty">
+        <h2>{loadingList ? '스키마 날짜를 읽는 중…' : '견줄 스키마 날짜가 없습니다'}</h2>
+        <p>
+          {loadingList ? (
+            <>위에서 고른 환경의 스키마 파일을 찾고 있습니다.</>
+          ) : snapshotsLoaded ? (
+            <>
+              같은 환경끼리 견주려면 그 환경에 스키마 파일이 <b>2개 이상</b> 있어야 합니다.
+              <br />
+              위에서 한쪽 환경을 바꾸면 다른 환경과 견줄 수 있습니다.
+            </>
+          ) : (
+            <>
+              <code>{`${(source.schemaRoot ?? '').trim()}/${leftEnv}`}</code> 아래에 스키마
+              파일이 없습니다.
+              <br />
+              파일 이름이 <code>change/config.ts</code> 의 <b>SCHEMA.fileName</b> 규칙과 맞는지
+              확인하세요.
+            </>
+          )}
+        </p>
+      </div>
+    )
+  }
+
   return (
     <>
       <SchemaBand
         summary={summary}
         kind={kind}
         onSelectKind={setKind}
-        left={sideOf(leftEnvId, leftDate, leftPick, snapshots.left)}
-        right={sideOf(rightEnvId, rightDate, rightPick, snapshots.right)}
-        onPickDate={onPickDate}
         loading={loadingList || comparing}
       />
-
-      {(listError ?? compareError) && (
-        <div className="banner error">
-          <b>스키마를 읽지 못했습니다.</b> {listError ?? compareError}
-        </div>
-      )}
 
       {/*
         좌우 설명이 다르면 그것도 변경이다 — 한쪽만 보여주면 조용히 묻힌다.
@@ -295,8 +279,8 @@ export default function SchemaPane({
           title={
             comparison.leftDescription === comparison.rightDescription
               ? comparison.leftDescription
-              : `${envById(leftEnvId).label} ${leftPick}\n${comparison.leftDescription || '(없음)'}\n\n` +
-                `${envById(rightEnvId).label} ${rightPick}\n${comparison.rightDescription || '(없음)'}`
+              : `${envById(leftEnvId).label} ${leftDate}\n${comparison.leftDescription || '(없음)'}\n\n` +
+                `${envById(rightEnvId).label} ${rightDate}\n${comparison.rightDescription || '(없음)'}`
           }
         >
           <span className="label">설명</span>
@@ -354,16 +338,21 @@ export default function SchemaPane({
 
         <div className="divider" />
 
+        <FontSize value={codeFontSize} onChange={onChangeFontSize} />
+
         {comparison && comparison.malformed > 0 && (
-          <span
-            className="excl-error"
-            title={
-              '줄 앞머리 [COLUMN] · [CONSTRAINT] · [INDEX] 로 종류를 알아보지 못한 줄입니다.\n' +
-              'change/config.ts 의 SCHEMA.separator 가 덤프의 구분자와 맞는지 확인하세요.'
-            }
-          >
-            ⚠ 못 읽은 줄 {comparison.malformed}
-          </span>
+          <>
+            <div className="divider" />
+            <span
+              className="excl-error"
+              title={
+                '줄 앞머리 [COLUMN] · [CONSTRAINT] · [INDEX] 로 종류를 알아보지 못한 줄입니다.\n' +
+                'change/config.ts 의 SCHEMA.separator 가 덤프의 구분자와 맞는지 확인하세요.'
+              }
+            >
+              ⚠ 못 읽은 줄 {comparison.malformed}
+            </span>
+          </>
         )}
 
         <div style={{ flex: 1 }} />
@@ -461,8 +450,8 @@ export default function SchemaPane({
 
               <SchemaTable
                 table={selected}
-                leftLabel={`${envById(leftEnvId).label} ${leftPick}`}
-                rightLabel={`${envById(rightEnvId).label} ${rightPick}`}
+                leftLabel={`${envById(leftEnvId).label} ${leftDate}`}
+                rightLabel={`${envById(rightEnvId).label} ${rightDate}`}
                 leftTagClass={envColorClass(leftEnvId)}
                 rightTagClass={envColorClass(rightEnvId)}
                 showSame={showSame}

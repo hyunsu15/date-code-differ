@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
-import { fetchComparison, fetchFileContent, fetchSnapshots } from './api/client.ts'
+import {
+  fetchComparison,
+  fetchFileContent,
+  fetchSchemaSnapshots,
+  fetchSnapshots,
+} from './api/client.ts'
 import CodeSearchBar from './features/diff/CodeSearchBar.tsx'
 import DiffNav from './features/diff/DiffNav.tsx'
 import DiffViewer from './features/diff/DiffViewer.tsx'
@@ -20,6 +25,8 @@ import {
   loadMySchemaExclude,
   saveMySchemaExclude,
 } from './features/schema/schemaExclude.ts'
+import { matchSchemaDate } from './features/schema/schemaView.ts'
+import FontSize, { readFontSize } from './features/settings/FontSize.tsx'
 import { loadDiffOptions, saveDiffOptions } from './features/settings/diffOptions.ts'
 import {
   ENV_CHOICES,
@@ -89,18 +96,6 @@ const EMPTY_LOADED: LoadedSnapshots = { source: null, root: '', items: [] }
 const readStored = (key: string, fallback: string): string =>
   localStorage.getItem(key) ?? fallback
 
-/** 코드 글자 크기(px) — 줄 높이는 1.6배로 함께 움직인다 */
-const FONT_MIN = 10
-const FONT_MAX = 22
-const FONT_DEFAULT = 12.5
-const FONT_STEP = 0.5
-
-function readFontSize(): number {
-  const raw = Number(localStorage.getItem('cd-code-font'))
-  if (!Number.isFinite(raw) || raw < FONT_MIN || raw > FONT_MAX) return FONT_DEFAULT
-  return raw
-}
-
 export default function App() {
   /* ---------------- 외부 폴더 / 스냅샷 ---------------- */
   const [sourceSelection, setSourceSelection] = useState<SourceSelection>(loadSourceSelection)
@@ -164,6 +159,23 @@ export default function App() {
   const [myExclude, setMyExclude] = useState(loadLocalExclude)
   /** 스키마 쪽 내 목록 — 대상이 파일 경로가 아니라 테이블·컬럼이라 따로 둔다 */
   const [mySchemaExclude, setMySchemaExclude] = useState(loadMySchemaExclude)
+
+  /**
+   * 스키마 날짜 목록·선택 — **코드와 같은 헤더 컨트롤이 다룬다.**
+   *
+   * 고르는 자리는 하나지만 **목록은 갈라 둔다.** 스키마 덤프는 배포와 주기가 달라
+   * 날짜가 코드와 다르고, 탭을 옮길 때마다 상대 쪽 선택이 흔들리면 안 된다.
+   * 처음 한 번은 코드에서 고른 날짜에 맞춰 준다 (`matchSchemaDate`).
+   */
+  const [schemaLoaded, setSchemaLoaded] = useState<{ left: Snapshot[]; right: Snapshot[] }>({
+    left: [],
+    right: [],
+  })
+  const [schemaSelection, setSchemaSelection] = useState(EMPTY_SELECTION)
+  const [loadingSchema, setLoadingSchema] = useState(false)
+  const [schemaError, setSchemaError] = useState<string | null>(null)
+  /** 스키마 위치를 아직 안 적었으면 탭을 눌러도 읽지 않는다 */
+  const schemaConfigured = (base.schemaRoot ?? '').trim() !== ''
   const fileSearchRef = useRef<HTMLInputElement | null>(null)
 
   /* ---------------- 선택 파일 본문 ---------------- */
@@ -534,6 +546,69 @@ export default function App() {
    * `이전` 을 최신 쪽으로 옮겨 `이후` 가 더 이상 최신이 아니게 되면
    * normalizeSelection 이 `이후` 를 한 칸 더 최신으로 끌어올린다.
    */
+  /**
+   * 스키마 날짜 목록을 읽는다. 스키마 탭을 열었을 때만 — 코드만 보는 사람에게
+   * 접속을 하나 더 붙일 이유가 없다.
+   */
+  useEffect(() => {
+    if (mode !== 'schema' || !schemaConfigured) return
+
+    let alive = true
+    setLoadingSchema(true)
+    setSchemaError(null)
+
+    fetchSchemaSnapshots(base, leftEnvPath, rightEnvPath)
+      .then((res) => {
+        if (!alive) return
+        // 헤더 컨트롤은 `Snapshot` 을 다룬다. 스키마 파일에는 셀 파일·패키지가 없어
+        // 0 으로 채우고, 목록 안내는 그때 수를 감춘다 (`SnapshotPicker.hint`)
+        const toItems = (refs: { id: string; sortKey: string }[]): Snapshot[] =>
+          refs.map((r) => ({ ...r, fileCount: 0, packageCount: 0 }))
+        setSchemaLoaded({ left: toItems(res.left), right: toItems(res.right) })
+      })
+      .catch((e: Error) => alive && setSchemaError(e.message))
+      .finally(() => alive && setLoadingSchema(false))
+
+    return () => {
+      alive = false
+    }
+  }, [mode, schemaConfigured, base, leftEnvPath, rightEnvPath])
+
+  /**
+   * 목록이 들어오면 규칙에 맞게 바로잡는다.
+   * 아직 아무것도 안 고른 상태면 **코드에서 고른 날짜에 맞춘다** — 8월 배포를 보다가
+   * 탭을 눌렀는데 9월 스키마가 뜨면 무엇을 보고 있는지 어긋난다.
+   */
+  useEffect(() => {
+    setSchemaSelection((prev) => {
+      const want =
+        prev.left || prev.right
+          ? prev
+          : {
+              left: matchSchemaDate(schemaLoaded.left, left),
+              right: matchSchemaDate(schemaLoaded.right, right),
+            }
+      return normalizeSelection(want, schemaLoaded.left, schemaLoaded.right, sameSource)
+    })
+    // 코드 날짜(left·right)는 **처음 맞출 때만** 쓴다 — 의존성에 넣으면 코드 날짜를
+    // 옮길 때마다 스키마 선택이 따라 흔들린다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schemaLoaded, sameSource])
+
+  const changeSchemaSide = useCallback(
+    (side: Side, id: string) => {
+      setSchemaSelection((prev) =>
+        normalizeSelection(
+          side === 'left' ? { ...prev, left: id } : { ...prev, right: id },
+          schemaLoaded.left,
+          schemaLoaded.right,
+          sameSource
+        )
+      )
+    },
+    [schemaLoaded, sameSource]
+  )
+
   const changeSide = useCallback(
     (side: Side, id: string) => {
       setSelection((prev) =>
@@ -547,6 +622,27 @@ export default function App() {
     },
     [leftLoaded.items, rightLoaded.items, sameSource]
   )
+
+  /**
+   * 헤더 컨트롤이 다룰 목록·선택.
+   * 모드만 보고 갈아 끼우므로, 컨트롤 자체는 무엇을 고르는지 몰라도 된다.
+   */
+  const picker =
+    mode === 'schema'
+      ? {
+          left: schemaLoaded.left,
+          right: schemaLoaded.right,
+          selection: schemaSelection,
+          onChange: changeSchemaSide,
+          loading: loadingSchema,
+        }
+      : {
+          left: leftLoaded.items,
+          right: rightLoaded.items,
+          selection,
+          onChange: changeSide,
+          loading: loadingSnapshots,
+        }
 
   /* ---------------- 단축키 ---------------- */
 
@@ -718,26 +814,32 @@ export default function App() {
 
         <div className="header-spacer" />
 
-        {/* 환경 선택은 좌우 칸 안에 있다 — 한쪽만 바꿔 운영↔테스트를 견줄 수 있어야 한다 */}
+        {/*
+          환경 선택은 좌우 칸 안에 있다 — 한쪽만 바꿔 운영↔테스트를 견줄 수 있어야 하고,
+          양쪽을 같은 환경으로 두면 그 환경의 두 날짜 비교가 된다.
+
+          **코드든 스키마든 이 컨트롤 하나로 고른다.** 목록만 모드에 따라 갈아 끼운다 —
+          고르는 자리를 두 벌 두면 탭을 옮길 때마다 다시 골라야 한다.
+        */}
         <SnapshotPicker
           left={{
             envId: envPair.left,
-            snapshots: leftLoaded.items,
-            value: left,
+            snapshots: picker.left,
+            value: picker.selection.left,
             tagClass: envColorClass(envPair.left),
           }}
           right={{
             envId: envPair.right,
-            snapshots: rightLoaded.items,
-            value: right,
+            snapshots: picker.right,
+            value: picker.selection.right,
             tagClass: envColorClass(envPair.right),
           }}
           envChoices={ENV_CHOICES}
           sameSource={sameSource}
-          onChangeSnapshot={changeSide}
+          onChangeSnapshot={picker.onChange}
           onChangeEnv={changeEnv}
           onRefresh={() => void loadSnapshots(leftSource, rightSource, true)}
-          loading={loadingSnapshots}
+          loading={picker.loading}
         />
 
         <button
@@ -945,40 +1047,7 @@ export default function App() {
 
           <div className="divider" />
 
-          <div className="group">
-            <span className="label">글자</span>
-            <div className="btn-group">
-              <button
-                type="button"
-                className="btn sm"
-                onClick={() => setCodeFontSize((v) => Math.max(FONT_MIN, v - FONT_STEP))}
-                disabled={codeFontSize <= FONT_MIN}
-                title="코드 글자 작게"
-                aria-label="코드 글자 작게"
-              >
-                가−
-              </button>
-              <button
-                type="button"
-                className="btn sm font-size"
-                onClick={() => setCodeFontSize(FONT_DEFAULT)}
-                disabled={codeFontSize === FONT_DEFAULT}
-                title="기본 크기로 되돌리기"
-              >
-                {codeFontSize}px
-              </button>
-              <button
-                type="button"
-                className="btn sm"
-                onClick={() => setCodeFontSize((v) => Math.min(FONT_MAX, v + FONT_STEP))}
-                disabled={codeFontSize >= FONT_MAX}
-                title="코드 글자 크게"
-                aria-label="코드 글자 크게"
-              >
-                가+
-              </button>
-            </div>
-          </div>
+          <FontSize value={codeFontSize} onChange={setCodeFontSize} />
 
           <div style={{ flex: 1 }} />
 
@@ -1172,8 +1241,13 @@ export default function App() {
           source={base}
           leftEnvId={envPair.left}
           rightEnvId={envPair.right}
-          leftDate={left}
-          rightDate={right}
+          leftDate={schemaSelection.left}
+          rightDate={schemaSelection.right}
+          snapshotsLoaded={schemaLoaded.left.length > 0 || schemaLoaded.right.length > 0}
+          listError={schemaError}
+          loadingList={loadingSchema}
+          codeFontSize={codeFontSize}
+          onChangeFontSize={setCodeFontSize}
           showSidebar={showSidebar}
           onToggleSidebar={() => setShowSidebar((v) => !v)}
           myExclude={mySchemaExclude}
