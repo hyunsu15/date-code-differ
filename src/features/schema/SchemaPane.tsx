@@ -1,0 +1,487 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { fetchSchemaComparison, fetchSchemaSnapshots } from '../../api/client.ts'
+import SchemaBand from './SchemaBand.tsx'
+import SchemaTable from './SchemaTable.tsx'
+import TableList from './TableList.tsx'
+import { filterTables, matchSchemaDate, summarize } from './schemaView.ts'
+import {
+  applySchemaExclude,
+  loadKindToggles,
+  saveKindToggles,
+  toggleSchemaExclude,
+  type KindToggles,
+} from './schemaExclude.ts'
+import { envById, envColorClass, envPath } from '../settings/envFolder.ts'
+import { num } from '../../lib/format.ts'
+import { pushToast } from '../../lib/toast.ts'
+import {
+  SCHEMA_KINDS,
+  SCHEMA_KIND_LABEL,
+  type SchemaComparisonResponse,
+  type SchemaKind,
+  type SchemaSnapshotRef,
+  type Side,
+  type SourceConfig,
+} from '../../types.ts'
+
+/** 설명의 첫 줄. 나머지는 툴팁으로 돌린다 */
+const firstLine = (text: string): string => text.split(/\r?\n/)[0]?.trim() ?? ''
+
+interface SchemaPaneProps {
+  /** 환경 폴더를 **붙이지 않은** 프리셋 루트 — 스키마 위치는 `schemaRoot` 가 따로 든다 */
+  source: SourceConfig
+  leftEnvId: string
+  rightEnvId: string
+  /** 화면 위에서 고른 코드 날짜 — 스키마는 여기에 맞춰 따라간다 */
+  leftDate: string
+  rightDate: string
+  showSidebar: boolean
+  onToggleSidebar: () => void
+  /** 내 스키마 제외 목록 원문 (App 이 들고 ⚙ 위치와 나눠 쓴다) */
+  myExclude: string
+  onChangeMyExclude: (text: string) => void
+}
+
+/**
+ * 스키마 비교 화면 — 위쪽 좌우 선택(환경·날짜)을 **코드 화면과 그대로 나눠 쓴다.**
+ *
+ * 고르는 자리를 두 벌 두지 않는다. 대신 스키마 덤프는 배포와 주기가 달라 고른 날짜에
+ * 딱 맞는 파일이 없는 것이 보통이라, **그 시점 이하로 가장 가까운 스키마**를 자동으로
+ * 고르고 무엇을 골랐는지 밴드에 적는다 (`schemaView.matchSchemaDate`).
+ * 자동 선택이 마음에 안 들면 밴드에서 바로 바꿀 수 있다.
+ *
+ * 접기는 세 겹이다 — 팀 규칙 파일 · 내 목록 · 종류 토글 (`schemaExclude.ts`).
+ * 셋을 한 자리에서 얹고 숫자를 다시 내야 요약과 목록이 어긋나지 않는다.
+ */
+export default function SchemaPane({
+  source,
+  leftEnvId,
+  rightEnvId,
+  leftDate,
+  rightDate,
+  showSidebar,
+  onToggleSidebar,
+  myExclude,
+  onChangeMyExclude,
+}: SchemaPaneProps) {
+  const leftEnv = envPath(leftEnvId)
+  const rightEnv = envPath(rightEnvId)
+  const configured = (source.schemaRoot ?? '').trim() !== ''
+
+  const [snapshots, setSnapshots] = useState<{
+    left: SchemaSnapshotRef[]
+    right: SchemaSnapshotRef[]
+  }>({ left: [], right: [] })
+  const [listError, setListError] = useState<string | null>(null)
+  const [loadingList, setLoadingList] = useState(false)
+
+  /** 사용자가 직접 고른 날짜. null 이면 코드 날짜를 따라간다 (기본) */
+  const [picked, setPicked] = useState<{ left: string | null; right: string | null }>({
+    left: null,
+    right: null,
+  })
+
+  const [comparison, setComparison] = useState<SchemaComparisonResponse | null>(null)
+  const [compareError, setCompareError] = useState<string | null>(null)
+  const [comparing, setComparing] = useState(false)
+
+  const [query, setQuery] = useState('')
+  const [onlyChanged, setOnlyChanged] = useState(true)
+  const [kind, setKind] = useState<SchemaKind | null>(null)
+  const [showSame, setShowSame] = useState(false)
+  const [showExcluded, setShowExcluded] = useState(false)
+  const [kinds, setKinds] = useState<KindToggles>(loadKindToggles)
+  const [selectedName, setSelectedName] = useState<string | null>(null)
+
+  useEffect(() => {
+    saveKindToggles(kinds)
+  }, [kinds])
+
+  /* ---------------- 날짜 목록 ---------------- */
+
+  useEffect(() => {
+    if (!configured) {
+      setSnapshots({ left: [], right: [] })
+      return
+    }
+    let alive = true
+    setLoadingList(true)
+    setListError(null)
+
+    fetchSchemaSnapshots(source, leftEnv, rightEnv)
+      .then((res) => {
+        if (!alive) return
+        setSnapshots({ left: res.left, right: res.right })
+        // 환경을 바꾸면 직접 고른 값은 풀어 준다 — 그 환경에 없는 날짜일 수 있다
+        setPicked({ left: null, right: null })
+      })
+      .catch((e: Error) => alive && setListError(e.message))
+      .finally(() => alive && setLoadingList(false))
+
+    return () => {
+      alive = false
+    }
+  }, [source, leftEnv, rightEnv, configured])
+
+  /** 실제로 읽을 스키마 날짜 — 직접 고른 것이 있으면 그것, 없으면 코드 날짜에 맞춘다 */
+  const leftPick = picked.left ?? matchSchemaDate(snapshots.left, leftDate)
+  const rightPick = picked.right ?? matchSchemaDate(snapshots.right, rightDate)
+
+  /* ---------------- 대조 ---------------- */
+
+  useEffect(() => {
+    if (!configured || !leftPick || !rightPick) {
+      setComparison(null)
+      return
+    }
+    let alive = true
+    setComparing(true)
+    setCompareError(null)
+
+    fetchSchemaComparison(source, leftEnv, rightEnv, leftPick, rightPick)
+      .then((res) => alive && setComparison(res))
+      .catch((e: Error) => {
+        if (!alive) return
+        setComparison(null)
+        setCompareError(e.message)
+      })
+      .finally(() => alive && setComparing(false))
+
+    return () => {
+      alive = false
+    }
+  }, [source, leftEnv, rightEnv, leftPick, rightPick, configured])
+
+  /*
+    실패를 알림으로 띄운다.
+
+    인라인 배너는 화면 위쪽에 있어서 목록을 보고 있으면 그냥 지나친다 — 실제로
+    "스키마가 안 된다" 는 말이 나온 자리가 여기다. 같은 내용은 겹쳐 뜨지 않는다
+    (`lib/toast.ts` 가 걸러 준다).
+  */
+  useEffect(() => {
+    if (listError) pushToast('error', '스키마 날짜 목록을 읽지 못했습니다', listError)
+  }, [listError])
+
+  useEffect(() => {
+    if (compareError) pushToast('error', '스키마를 대조하지 못했습니다', compareError)
+  }, [compareError])
+
+  useEffect(() => {
+    if (!comparison || comparison.malformed === 0) return
+
+    // 한 줄도 못 읽었으면 화면이 통째로 비어 있다 — 경고가 아니라 오류다
+    const dead = comparison.tables.length === 0
+    const sample = comparison.malformedSample.map((line) => `  ${line}`).join('\n')
+
+    pushToast(
+      dead ? 'error' : 'warn',
+      dead
+        ? `스키마를 한 줄도 읽지 못했습니다 (${comparison.malformed}줄)`
+        : `못 읽은 줄이 ${comparison.malformed}개 있습니다`,
+      [comparison.malformedHint, sample && `파일에는 이렇게 적혀 있습니다:\n${sample}`]
+        .filter(Boolean)
+        .join('\n\n')
+    )
+  }, [comparison])
+
+  // 규칙 파일을 못 읽은 것은 조용히 넘어가면 안 된다 —
+  // 접힌 줄 알았던 것이 그냥 다 보이고 있는 상태다
+  useEffect(() => {
+    if (comparison?.exclude.error) {
+      pushToast('warn', '스키마 제외 목록 파일을 읽지 못했습니다', comparison.exclude.error)
+    }
+  }, [comparison])
+
+  /* ---------------- 접기 ---------------- */
+
+  const excluded = useMemo(
+    () =>
+      applySchemaExclude(
+        comparison?.tables ?? [],
+        comparison?.exclude.rules ?? [],
+        myExclude,
+        kinds
+      ),
+    [comparison, myExclude, kinds]
+  )
+
+  const tables = excluded.tables
+  const summary = useMemo(() => summarize(tables), [tables])
+  const visible = useMemo(
+    () => filterTables(tables, { query, onlyChanged, kind, showExcluded }),
+    [tables, query, onlyChanged, kind, showExcluded]
+  )
+
+  // 고른 테이블이 걸러져 사라지면 첫 항목으로 옮긴다 — 빈 화면을 남기지 않는다
+  const selected = visible.find((t) => t.name === selectedName) ?? visible[0] ?? null
+  useEffect(() => {
+    if (selected && selected.name !== selectedName) setSelectedName(selected.name)
+  }, [selected, selectedName])
+
+  const onPickDate = useCallback((side: Side, date: string) => {
+    setPicked((prev) => ({ ...prev, [side]: date }))
+  }, [])
+
+  /** 목록·표에서 한 번 눌러 접거나 펼친다 */
+  const toggleExclude = useCallback(
+    (table: string, member?: string) => {
+      onChangeMyExclude(toggleSchemaExclude(myExclude, table, member))
+    },
+    [myExclude, onChangeMyExclude]
+  )
+
+  const sideOf = (envId: string, wanted: string, actual: string, items: SchemaSnapshotRef[]) => ({
+    envLabel: envById(envId).label,
+    tagClass: envColorClass(envId),
+    wanted,
+    actual,
+    items,
+  })
+
+  /** 접힌 것 전부 — 테이블과 줄을 합쳐 센다 */
+  const hidden = excluded.excludedTables + excluded.excludedRows
+  const hiddenChanged = excluded.excludedTablesChanged + excluded.excludedRowsChanged
+
+  /* ---------------- 설정을 아직 안 채운 경우 ---------------- */
+
+  if (!configured) {
+    return (
+      <div className="empty">
+        <h2>스키마 위치가 설정돼 있지 않습니다</h2>
+        <p>
+          <code>change/config.ts</code> 의 프리셋에 <b>schemaRoot</b> 를 적으면 켜집니다.
+          <br />
+          그 아래는 환경 폴더로 갈리고, 그 안에 날짜별 파일이 하나씩 있습니다.
+          <br />
+          <code>
+            &lt;schemaRoot&gt;/{leftEnv || '<환경>'}/snapshot_{leftEnv || '<환경>'}_2026-09-01.txt
+          </code>
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <SchemaBand
+        summary={summary}
+        kind={kind}
+        onSelectKind={setKind}
+        left={sideOf(leftEnvId, leftDate, leftPick, snapshots.left)}
+        right={sideOf(rightEnvId, rightDate, rightPick, snapshots.right)}
+        onPickDate={onPickDate}
+        loading={loadingList || comparing}
+      />
+
+      {(listError ?? compareError) && (
+        <div className="banner error">
+          <b>스키마를 읽지 못했습니다.</b> {listError ?? compareError}
+        </div>
+      )}
+
+      {/*
+        좌우 설명이 다르면 그것도 변경이다 — 한쪽만 보여주면 조용히 묻힌다.
+
+        다만 **첫 줄만** 편다. 파일 맨 위 주석에는 형식 설명·담당자 같은 것이 얼마든지
+        들어갈 수 있어서, 그대로 펴면 이 한 줄이 화면 위쪽을 통째로 먹는다.
+        나머지는 마우스를 올리면 보인다.
+      */}
+      {comparison && (comparison.leftDescription || comparison.rightDescription) && (
+        <div
+          className={`schema-desc ${
+            comparison.leftDescription !== comparison.rightDescription ? 'differs' : ''
+          }`}
+          title={
+            comparison.leftDescription === comparison.rightDescription
+              ? comparison.leftDescription
+              : `${envById(leftEnvId).label} ${leftPick}\n${comparison.leftDescription || '(없음)'}\n\n` +
+                `${envById(rightEnvId).label} ${rightPick}\n${comparison.rightDescription || '(없음)'}`
+          }
+        >
+          <span className="label">설명</span>
+          {comparison.leftDescription === comparison.rightDescription ? (
+            <span className="same">{firstLine(comparison.leftDescription)}</span>
+          ) : (
+            <>
+              <span className="one">{firstLine(comparison.leftDescription) || '(없음)'}</span>
+              <span className="arrow">→</span>
+              <span className="one">{firstLine(comparison.rightDescription) || '(없음)'}</span>
+            </>
+          )}
+        </div>
+      )}
+
+      <div className="optionbar">
+        <div className="group">
+          <span className="label">줄</span>
+          <div className="btn-group">
+            <button
+              type="button"
+              className={`btn sm ${showSame ? '' : 'active'}`}
+              onClick={() => setShowSame(false)}
+              title="바뀐 컬럼·제약·인덱스만 보여줍니다"
+            >
+              변경만
+            </button>
+            <button
+              type="button"
+              className={`btn sm ${showSame ? 'active' : ''}`}
+              onClick={() => setShowSame(true)}
+              title="테이블 정의 전체를 보여줍니다"
+            >
+              전체
+            </button>
+          </div>
+        </div>
+
+        <div className="divider" />
+
+        {/* 종류를 통째로 끄는 자리 — "이번 배포는 인덱스 성능 얘기라 안 본다" 가 잦다 */}
+        <div className="group">
+          <span className="label">종류</span>
+          {SCHEMA_KINDS.map((k) => (
+            <label key={k} className="toggle">
+              <input
+                type="checkbox"
+                checked={kinds[k]}
+                onChange={(e) => setKinds((prev) => ({ ...prev, [k]: e.target.checked }))}
+              />
+              {SCHEMA_KIND_LABEL[k]}
+            </label>
+          ))}
+        </div>
+
+        <div className="divider" />
+
+        {comparison && comparison.malformed > 0 && (
+          <span
+            className="excl-error"
+            title={
+              '줄 앞머리 [COLUMN] · [CONSTRAINT] · [INDEX] 로 종류를 알아보지 못한 줄입니다.\n' +
+              'change/config.ts 의 SCHEMA.separator 가 덤프의 구분자와 맞는지 확인하세요.'
+            }
+          >
+            ⚠ 못 읽은 줄 {comparison.malformed}
+          </span>
+        )}
+
+        <div style={{ flex: 1 }} />
+
+        <button type="button" className="btn sm" onClick={onToggleSidebar}>
+          {showSidebar ? '◧ 목록 숨기기' : '▣ 목록 보기'}
+        </button>
+      </div>
+
+      <div className={`main ${showSidebar ? '' : 'no-sidebar'}`}>
+        {showSidebar && (
+          <aside className="sidebar">
+            <div className="filter">
+              <input
+                className="search"
+                type="search"
+                placeholder="테이블·컬럼 이름 검색"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={onlyChanged}
+                  onChange={(e) => setOnlyChanged(e.target.checked)}
+                />
+                변경된 테이블만
+              </label>
+            </div>
+
+            <div className="filelist-head">
+              테이블 <b>{visible.length}</b>개
+              {kind && <span className="pkg-filter">· 종류 필터</span>}
+              {excluded.offKinds.length > 0 && (
+                <span className="pkg-filter">
+                  · {excluded.offKinds.map((k) => SCHEMA_KIND_LABEL[k]).join('·')} 끔
+                </span>
+              )}
+              {/* 접은 것을 조용히 지우지 않는다 — 그중 바뀐 것이 있으면 따로 알린다 */}
+              {hidden > 0 && (
+                <button
+                  type="button"
+                  className={`excl-toggle ${showExcluded ? 'on' : ''}`}
+                  onClick={() => setShowExcluded((v) => !v)}
+                  title={[
+                    comparison?.exclude.file
+                      ? `규칙 파일(${comparison.exclude.file}) ${comparison.exclude.rules.length}개`
+                      : '규칙 파일 없음',
+                    excluded.byMine > 0 ? `내 목록 ${excluded.byMine}개` : null,
+                    `테이블 ${excluded.excludedTables} · 줄 ${excluded.excludedRows} 을 접었습니다.`,
+                    hiddenChanged > 0
+                      ? `그중 ${hiddenChanged}개는 실제로 바뀌었습니다 — 눌러서 확인하세요.`
+                      : '눌러서 펼쳐 볼 수 있습니다.',
+                  ]
+                    .filter(Boolean)
+                    .join('\n')}
+                >
+                  · 제외 {num(hidden)}
+                  {excluded.byMine > 0 && <i className="mine"> (내 {excluded.byMine})</i>}
+                  {hiddenChanged > 0 && <b> · 변경 {hiddenChanged}</b>}
+                </button>
+              )}
+            </div>
+
+            <TableList
+              tables={visible}
+              selectedName={selected?.name ?? null}
+              onSelect={setSelectedName}
+              onToggleExclude={toggleExclude}
+              emptyMessage={
+                comparing
+                  ? '읽는 중…'
+                  : tables.length === 0
+                    ? '읽어 온 테이블이 없습니다.'
+                    : hidden > 0 && !showExcluded
+                      ? '보이는 테이블이 모두 접혀 있습니다. 위의 "제외" 를 눌러 펼쳐 보세요.'
+                      : '조건에 맞는 테이블이 없습니다.'
+              }
+            />
+          </aside>
+        )}
+
+        <section className="viewer">
+          {selected ? (
+            <>
+              <div className="file-title">
+                <b>{selected.name}</b>
+                {selected.excluded && (
+                  <span className="badge s-excluded">
+                    {selected.excludedLocal ? '내 제외' : '제외'}
+                  </span>
+                )}
+                {selected.primaryKeyChanged && <span className="badge s-pk">⚠ 기본키 변경</span>}
+              </div>
+
+              <SchemaTable
+                table={selected}
+                leftLabel={`${envById(leftEnvId).label} ${leftPick}`}
+                rightLabel={`${envById(rightEnvId).label} ${rightPick}`}
+                leftTagClass={envColorClass(leftEnvId)}
+                rightTagClass={envColorClass(rightEnvId)}
+                showSame={showSame}
+                showExcluded={showExcluded}
+                onToggleExclude={(member) => toggleExclude(selected.name, member)}
+              />
+            </>
+          ) : (
+            <div className="empty">
+              <h2>{comparing ? '읽는 중…' : '볼 테이블이 없습니다'}</h2>
+              <p>
+                위에서 좌우의 환경·날짜를 고르면 그 시점의 스키마를 견줍니다.
+                <br />
+                변경이 없으면 <b>변경된 테이블만</b> 을 끄고 전체를 볼 수 있습니다.
+              </p>
+            </div>
+          )}
+        </section>
+      </div>
+    </>
+  )
+}

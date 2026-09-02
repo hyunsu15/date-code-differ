@@ -1330,3 +1330,492 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   padding: 2px 6px;
   border-radius: 4px;
 }
+
+/* ================================================================
+   모드 전환 — 코드 비교 / 스키마 비교
+
+   좌우 선택(환경·날짜)은 위 헤더에 그대로 두고 아래 3단만 갈린다.
+   ================================================================ */
+
+.mode-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 16px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.mode-tab {
+  padding: 9px 16px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.mode-tab:hover { color: var(--text); }
+
+.mode-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+/* ================================================================
+   스키마 비교
+   ================================================================ */
+
+.schema-band { flex-wrap: wrap; }
+.schema-band .package-head { flex-wrap: wrap; gap: 8px; }
+
+/* 기본키 변경은 빈도가 낮고 위험이 커서 다른 수치와 색을 달리 한다 */
+.schema-band .pk-warn { color: #d29922; font-weight: 600; }
+.schema-band .sys-hidden,
+.schema-section .sys-hidden { font-size: 11.5px; color: var(--faint); cursor: help; }
+
+.schema-dates {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+}
+
+.schema-dates .arrow { color: var(--faint); font-size: 12px; }
+
+.schema-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+
+/* 고른 날짜와 실제로 읽은 날짜가 다를 때만 뜬다 — 무엇으로 대신했는지 남긴다 */
+.schema-date .wanted {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: help;
+}
+
+.schema-date .none { color: var(--faint); font-style: italic; }
+.schema-date.empty { opacity: 0.7; }
+
+.schema-band .select.sm,
+.schema-date .select.sm {
+  padding: 3px 6px;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+
+.schema-band .side-tag,
+.schema-rows .side-tag {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--border-soft);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.schema-band .side-tag.env-c0,
+.schema-rows .side-tag.env-c0 { background: rgba(240, 136, 62, 0.16); color: #f0883e; }
+.schema-band .side-tag.env-c1,
+.schema-rows .side-tag.env-c1 { background: rgba(121, 192, 255, 0.16); color: #79c0ff; }
+.schema-band .side-tag.env-c2,
+.schema-rows .side-tag.env-c2 { background: rgba(247, 120, 186, 0.16); color: #f778ba; }
+.schema-band .side-tag.env-c3,
+.schema-rows .side-tag.env-c3 { background: rgba(57, 197, 207, 0.16); color: #39c5cf; }
+
+[data-theme='light'] .schema-band .side-tag.env-c0,
+[data-theme='light'] .schema-rows .side-tag.env-c0 { background: #fff1e5; color: #bc4c00; }
+[data-theme='light'] .schema-band .side-tag.env-c1,
+[data-theme='light'] .schema-rows .side-tag.env-c1 { background: #ddf4ff; color: #0969da; }
+[data-theme='light'] .schema-band .side-tag.env-c2,
+[data-theme='light'] .schema-rows .side-tag.env-c2 { background: #ffeff7; color: #bf3989; }
+[data-theme='light'] .schema-band .side-tag.env-c3,
+[data-theme='light'] .schema-rows .side-tag.env-c3 { background: #d4f5f7; color: #0d7d84; }
+
+/* 파일 맨 위 설명. 좌우가 다르면 그것도 변경이라 눈에 띄게 둔다 */
+.schema-desc {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 16px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.schema-desc .label {
+  color: var(--faint);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+}
+
+/* 첫 줄만 편다 — 넘치면 잘라 낸다 (전체는 툴팁) */
+.schema-desc .one,
+.schema-desc .same {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.schema-desc .one { flex: 1 1 0; }
+.schema-desc { cursor: help; }
+.schema-desc .arrow { color: var(--faint); flex-shrink: 0; }
+.schema-desc.differs { background: rgba(187, 128, 9, 0.1); color: #d29922; }
+
+/* ---------------- 테이블 목록 ---------------- */
+
+.badge.s-pk { background: rgba(187, 128, 9, 0.2); color: #d29922; }
+
+.file-item .row2.schema-row2 { gap: 8px; }
+.file-item .kinds { display: inline-flex; gap: 3px; align-items: center; }
+
+/* 어떤 종류가 움직였는지만 점으로 — 자세한 것은 뷰어에서 본다 */
+.file-item .kind-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.file-item .kind-dot.k-column { background: var(--accent); }
+.file-item .kind-dot.k-constraint { background: #d29922; }
+.file-item .kind-dot.k-index { background: #a371f7; }
+
+.file-item .changed-lines { color: var(--muted); font-variant-numeric: tabular-nums; }
+.file-item .kind-counts { display: inline-flex; gap: 3px; }
+.file-item .kind-counts i { font-style: normal; font-weight: 600; }
+
+/* ---------------- 뷰어 ---------------- */
+
+.schema-view {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 0 24px;
+}
+
+.schema-section { border-bottom: 1px solid var(--border-soft); }
+
+.schema-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 16px;
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.schema-head:hover { background: var(--surface); }
+.schema-head .caret { color: var(--faint); font-size: 10px; }
+.schema-head .label { font-weight: 600; font-size: 13px; }
+.schema-head .total { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+.schema-head .counts { display: inline-flex; gap: 5px; font-size: 12px; }
+.schema-head .counts i { font-style: normal; font-weight: 600; }
+.schema-head .counts .add { color: var(--add-fg); }
+.schema-head .counts .del { color: var(--del-fg); }
+.schema-head .counts .mod { color: #d29922; }
+.schema-head .sys-hidden { margin-left: auto; }
+
+.schema-empty {
+  padding: 6px 16px 12px 38px;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.schema-rows {
+  padding: 0 16px 10px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+/*
+  이름 · 왼쪽 · 화살표 · 오른쪽 — 한 줄 안에서 좌우를 견준다.
+  나란한 두 판으로 두면 순서가 어긋난 순간 눈이 계속 왔다 갔다 한다.
+*/
+.srow {
+  display: grid;
+  grid-template-columns: 16px minmax(120px, 1.1fr) minmax(0, 1.6fr) 18px minmax(0, 1.6fr);
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+
+.srow.head {
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--faint);
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 3px;
+}
+
+.srow .mark { color: var(--faint); font-weight: 700; text-align: center; }
+.srow .sname { font-weight: 600; overflow-wrap: anywhere; }
+.srow .sval { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.srow .sval .text { overflow-wrap: anywhere; }
+.srow .sval .none { color: var(--faint); }
+.srow .sarrow { color: var(--faint); text-align: center; }
+
+/* 양쪽이 같은 줄은 값을 한 번만 적고 흐리게 둔다 — 바뀐 줄이 묻히지 않게 */
+.srow.s-same { color: var(--muted); }
+.srow.s-same .sname { font-weight: 400; }
+.srow .sval.both { grid-column: 3 / -1; }
+
+.srow.s-added { background: var(--add-bg); }
+.srow.s-added .mark { color: var(--add-fg); }
+.srow.s-removed { background: var(--del-bg); }
+.srow.s-removed .mark { color: var(--del-fg); }
+.srow.s-modified { background: rgba(187, 128, 9, 0.12); }
+.srow.s-modified .mark { color: #d29922; }
+
+/* 제약 종류(기본키·외래키…)·인덱스 유니크 여부 */
+.srow .kbadge {
+  padding: 0 5px;
+  border-radius: 4px;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  font-weight: 600;
+  background: var(--border-soft);
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 좁은 화면에서는 좌우를 위아래로 접는다 */
+@media (max-width: 900px) {
+  .srow {
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+  .srow .sval,
+  .srow .sval.both { grid-column: 2 / -1; }
+  .srow .sarrow { display: none; }
+  .srow.head { display: none; }
+}
+
+/* ================================================================
+   알림 (토스트)
+
+   실패는 눈앞으로 와야 한다 — 배너는 화면 위쪽에 있어서 목록을 보고 있으면 지나친다.
+   오류는 저절로 사라지지 않는다 (`src/lib/toast.ts`).
+   ================================================================ */
+
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(460px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  pointer-events: auto;
+  animation: toast-in 0.16s ease-out;
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 움직임을 줄여 달라는 설정을 존중한다 */
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
+}
+
+.toast.t-error { border-left-color: var(--del-fg); }
+.toast.t-warn { border-left-color: #d29922; }
+.toast.t-info { border-left-color: var(--accent); }
+
+.toast .icon { font-size: 14px; line-height: 1.4; flex-shrink: 0; }
+.toast.t-error .icon { color: var(--del-fg); }
+.toast.t-warn .icon { color: #d29922; }
+.toast.t-info .icon { color: var(--accent); }
+
+.toast .body { min-width: 0; flex: 1; }
+.toast .title { display: block; font-size: 13px; color: var(--text); }
+
+/* 원인을 짚어 주는 문장이라 접지 않고 그대로 편다 */
+.toast .detail {
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.toast .close {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--faint);
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.toast .close:hover { color: var(--text); background: var(--surface-2); }
+
+/* ================================================================
+   내 제외 목록 — 목록에서 바로 접기
+
+   팀이 함께 쓰는 규칙 파일과 목적이 다르다 (`features/settings/localExclude.ts`).
+   ================================================================ */
+
+/* 항목이 버튼 하나였는데 접기 버튼이 붙어 둘이 됐다 */
+.file-item {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.file-item .file-open {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+/* 평소엔 흐리게 두고 항목에 마우스를 올리거나 이미 접힌 것에만 또렷하게 */
+.file-item .file-excl {
+  flex-shrink: 0;
+  width: 30px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--faint);
+  background: none;
+  border: none;
+  border-left: 1px solid transparent;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.file-item:hover .file-excl,
+.file-item .file-excl:focus-visible { opacity: 1; border-left-color: var(--border-soft); }
+.file-item.excluded .file-excl { opacity: 1; }
+.file-item .file-excl:hover:not(:disabled) { color: var(--del-fg); background: var(--surface-2); }
+.file-item .file-excl:disabled { cursor: not-allowed; opacity: 0.3; }
+
+/* 손가락으로 쓰는 화면에서는 hover 가 없다 — 늘 보여 준다 */
+@media (hover: none) {
+  .file-item .file-excl { opacity: 1; }
+}
+
+.filelist-head .excl-toggle .mine { font-style: normal; color: var(--accent); }
+
+.settings-panel textarea.my-exclude {
+  width: 100%;
+  padding: 6px 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  resize: vertical;
+}
+
+/* ---------------- 스키마 제외 ---------------- */
+
+/* 줄마다 접기 버튼이 붙어 칸이 하나 늘었다 */
+.schema-rows .srow {
+  grid-template-columns:
+    16px minmax(120px, 1.1fr) minmax(0, 1.6fr) 18px minmax(0, 1.6fr)
+    26px;
+}
+
+.srow .sexcl {
+  justify-self: end;
+  width: 22px;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--faint);
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.srow:hover .sexcl,
+.srow .sexcl:focus-visible { opacity: 1; }
+.srow.excluded .sexcl { opacity: 1; }
+.srow .sexcl:hover:not(:disabled) { color: var(--del-fg); background: var(--surface-2); }
+.srow .sexcl:disabled { cursor: not-allowed; opacity: 0.3; }
+
+/* 손가락으로 쓰는 화면에는 hover 가 없다 */
+@media (hover: none) {
+  .srow .sexcl { opacity: 1; }
+}
+
+/* 접어 둔 줄은 지우지 않고 흐리게 둔다 (펼쳤을 때) */
+.srow.excluded { opacity: 0.5; }
+.srow.excluded:hover { opacity: 1; }
+
+.schema-head .excl-hidden {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--faint);
+  cursor: help;
+}
+
+.schema-head .excl-hidden b { color: #d29922; font-weight: 600; }
+/* 둘 다 있으면 접은 이유를 나란히 보여준다 — 고칠 자리가 다르다 */
+.schema-head .excl-hidden + .sys-hidden { margin-left: 8px; }
+
+.optionbar .group .toggle { white-space: nowrap; }
+
+@media (max-width: 900px) {
+  .schema-rows .srow {
+    grid-template-columns: 16px minmax(0, 1fr) 26px;
+  }
+  .srow .sval,
+  .srow .sval.both { grid-column: 2 / 3; }
+  .srow .sexcl { grid-row: 1; grid-column: 3; }
+}

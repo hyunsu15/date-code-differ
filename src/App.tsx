@@ -5,9 +5,21 @@ import DiffNav from './features/diff/DiffNav.tsx'
 import DiffViewer from './features/diff/DiffViewer.tsx'
 import FileList from './features/files/FileList.tsx'
 import PackageSummary from './features/packages/PackageSummary.tsx'
+import SchemaPane from './features/schema/SchemaPane.tsx'
 import SnapshotPicker from './features/snapshots/SnapshotPicker.tsx'
+import Toasts from './features/toast/Toasts.tsx'
 import { EMPTY_SELECTION, normalizeSelection } from './features/snapshots/selection.ts'
 import SettingsPanel from './features/settings/SettingsPanel.tsx'
+import {
+  applyLocalExclude,
+  loadLocalExclude,
+  saveLocalExclude,
+  toggleLocalExclude,
+} from './features/settings/localExclude.ts'
+import {
+  loadMySchemaExclude,
+  saveMySchemaExclude,
+} from './features/schema/schemaExclude.ts'
 import { loadDiffOptions, saveDiffOptions } from './features/settings/diffOptions.ts'
 import {
   ENV_CHOICES,
@@ -42,6 +54,16 @@ import type {
   Theme,
   ViewMode,
 } from './types.ts'
+
+/**
+ * 화면 모드 — 소스 코드 diff 인가, 데이터 스키마 대조인가.
+ *
+ * 좌우 선택(환경·날짜)은 두 모드가 **그대로 나눠 쓴다.** 고르는 자리를 두 벌 두면
+ * 탭을 옮길 때마다 다시 골라야 하고, "지금 무엇을 견주고 있나" 가 둘로 갈린다.
+ * 대신 아래 3단(밴드·옵션바·본문)은 통째로 갈린다 — 코드의 무시 옵션(공백·주석)은
+ * 스키마에 하나도 안 맞고, 스키마에는 제 옵션이 따로 있다.
+ */
+type PaneMode = 'code' | 'schema'
 
 const EMPTY_SEARCH: SearchResult = { matches: [], byRow: new Map(), error: null, truncated: false }
 const DEFAULT_SEARCH: SearchOptions = { query: '', caseSensitive: false, regex: false }
@@ -135,6 +157,13 @@ export default function App() {
    * 다시 열게 된다. 접힌 상태에서도 몇 개가 접혔는지는 늘 보인다.
    */
   const [showExcluded, setShowExcluded] = useState(false)
+  /**
+   * 내 제외 목록 — 화면에서 바로 접고 이 브라우저에만 남는다.
+   * 팀이 함께 쓰는 `excludeFile` 과 목적이 다르다 (`features/settings/localExclude.ts`).
+   */
+  const [myExclude, setMyExclude] = useState(loadLocalExclude)
+  /** 스키마 쪽 내 목록 — 대상이 파일 경로가 아니라 테이블·컬럼이라 따로 둔다 */
+  const [mySchemaExclude, setMySchemaExclude] = useState(loadMySchemaExclude)
   const fileSearchRef = useRef<HTMLInputElement | null>(null)
 
   /* ---------------- 선택 파일 본문 ---------------- */
@@ -155,6 +184,9 @@ export default function App() {
   const [syncScroll, setSyncScroll] = useState(() => readStored('cd-sync', 'on') !== 'off')
   const [theme, setTheme] = useState<Theme>(() => readStored('cd-theme', 'dark') as Theme)
   const [showSidebar, setShowSidebar] = useState(true)
+  const [mode, setMode] = useState<PaneMode>(() =>
+    readStored('cd-mode', 'code') === 'schema' ? 'schema' : 'code'
+  )
 
   /* ---------------- diff 포인트 ---------------- */
   const [currentHunk, setCurrentHunk] = useState(0)
@@ -182,6 +214,23 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('cd-scope', codeScope)
   }, [codeScope])
+
+  useEffect(() => {
+    localStorage.setItem('cd-mode', mode)
+  }, [mode])
+
+  useEffect(() => {
+    saveLocalExclude(myExclude)
+  }, [myExclude])
+
+  useEffect(() => {
+    saveMySchemaExclude(mySchemaExclude)
+  }, [mySchemaExclude])
+
+  /** 목록에서 한 번 눌러 접거나 펼친다 */
+  const toggleMyExclude = useCallback((path: string) => {
+    setMyExclude((text) => toggleLocalExclude(text, path))
+  }, [])
 
   useEffect(() => {
     saveDiffOptions(options)
@@ -307,13 +356,19 @@ export default function App() {
    * 접어 둔 파일까지 합계에 넣으면 "12개 변경" 인데 목록에는 9개만 보이게 된다.
    * (패키지 밴드는 서버가 같은 기준으로 만들어 준다 — `ComparisonResponse.packages`)
    */
-  const includedFiles = useMemo(
-    () => (comparison?.files ?? []).filter((f) => !f.excluded),
-    [comparison]
+  /**
+   * 서버가 접은 것 위에 **내 목록**을 얹은 파일들.
+   * 아래 계산은 전부 이 결과를 본다 — 두 목록이 같은 화면에서 하나처럼 보여야 한다.
+   */
+  const local = useMemo(
+    () => applyLocalExclude(comparison?.files ?? [], myExclude),
+    [comparison, myExclude]
   )
 
+  const includedFiles = useMemo(() => local.files.filter((f) => !f.excluded), [local])
+
   const visibleFiles = useMemo(() => {
-    const all = comparison?.files ?? []
+    const all = local.files
     const q = query.trim().toLowerCase()
     return all.filter((f) => {
       if (f.excluded && !showExcluded) return false
@@ -322,7 +377,7 @@ export default function App() {
       if (onlyChanged && f.status === 'same') return false
       return true
     })
-  }, [comparison, query, onlyChanged, selectedPackage, showExcluded])
+  }, [local, query, onlyChanged, selectedPackage, showExcluded])
 
   const selectedFile = useMemo(
     () => visibleFiles.find((f) => f.path === selectedPath) ?? visibleFiles[0] ?? null,
@@ -562,7 +617,7 @@ export default function App() {
     () => includedFiles.filter((f) => f.status !== 'same').length,
     [includedFiles]
   )
-  /** 제외 목록 상태 — 접힌 수와 "그중 바뀐 수" 를 화면이 늘 보여줄 수 있게 서버가 실어 준다 */
+  /** 규칙 파일의 상태 — 읽기 실패를 알리는 데 쓴다 (접힌 수는 아래 `local` 이 합쳐 센다) */
   const exclude = comparison?.exclude ?? null
 
   /**
@@ -572,7 +627,7 @@ export default function App() {
    */
   const emptyFileMessage = (): string => {
     if (comparing) return '비교하는 중…'
-    if (exclude && exclude.files > 0 && !showExcluded) {
+    if (local.excluded > 0 && !showExcluded) {
       return '보이는 파일이 모두 접혀 있습니다. 위의 "제외" 를 눌러 펼쳐 보세요.'
     }
     if (onlyChanged) return '변경된 파일이 없습니다. "변경된 파일만" 을 끄면 전체가 보입니다.'
@@ -624,11 +679,18 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* 실패를 눈앞으로 가져온다 — 배너만으로는 아래를 보고 있으면 놓친다 */}
+      <Toasts />
+
       {settingsOpen && (
         <SettingsPanel
           value={sourceSelection}
           onApply={applySource}
           onClose={() => setSettingsOpen(false)}
+          myExclude={myExclude}
+          onChangeMyExclude={setMyExclude}
+          mySchemaExclude={mySchemaExclude}
+          onChangeMySchemaExclude={setMySchemaExclude}
         />
       )}
 
@@ -720,358 +782,404 @@ export default function App() {
         </div>
       )}
 
-      {comparison && (
-        <PackageSummary
-          packages={comparison.packages}
-          selected={selectedPackage}
-          onSelect={setSelectedPackage}
-        />
-      )}
-
-      <div className="optionbar">
-        <div className="group">
-          <span className="label">코드</span>
-          <div className="btn-group">
-            <button
-              type="button"
-              className={`btn sm ${codeScope === 'changed' ? 'active' : ''}`}
-              onClick={() => setCodeScope('changed')}
-              title="변경된 부분만 보여줍니다 (Alt+A 로 전환)"
-            >
-              변경만
-            </button>
-            <button
-              type="button"
-              className={`btn sm ${codeScope === 'full' ? 'active' : ''}`}
-              onClick={() => setCodeScope('full')}
-              title="파일 전체를 diff 색과 함께 보여줍니다 (Alt+A 로 전환)"
-            >
-              전체
-            </button>
-          </div>
-        </div>
-
-        <div className="divider" />
-
-        <div className="group" style={{ opacity: codeScope === 'changed' ? 1 : 0.45 }}>
-          <span className="label">문맥</span>
-          <div className="btn-group">
-            {CONTEXT_CHOICES.map((c) => (
-              <button
-                key={c.v}
-                type="button"
-                className={`btn sm ${contextLines === c.v ? 'active' : ''}`}
-                onClick={() => setContextLines(c.v)}
-                disabled={codeScope === 'full'}
-                title={codeScope === 'full' ? '전체 보기에서는 문맥 설정이 필요 없습니다' : ''}
-              >
-                {c.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="divider" />
-
-        <div className="group">
-          <span className="label">보기</span>
-          <div className="btn-group">
-            <button
-              type="button"
-              className={`btn sm ${viewMode === 'split' ? 'active' : ''}`}
-              onClick={() => setViewMode('split')}
-            >
-              나란히
-            </button>
-            <button
-              type="button"
-              className={`btn sm ${viewMode === 'unified' ? 'active' : ''}`}
-              onClick={() => setViewMode('unified')}
-            >
-              통합
-            </button>
-          </div>
-        </div>
-
-        <div className="divider" />
-
-        <div className="group">
-          <span className="label">무시</span>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={options.ignoreWhitespace}
-              onChange={setOpt('ignoreWhitespace')}
-            />
-            공백
-          </label>
-          <label className="toggle">
-            <input type="checkbox" checked={options.ignoreCase} onChange={setOpt('ignoreCase')} />
-            대소문자
-          </label>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={options.ignoreBlankLines}
-              onChange={setOpt('ignoreBlankLines')}
-            />
-            빈 줄
-          </label>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={options.ignoreComments}
-              onChange={setOpt('ignoreComments')}
-            />
-            주석
-          </label>
-          <label
-            className="toggle"
-            title="작성자 : 홍길동 처럼 이름을 적어 둔 줄을 비교에서 뺍니다 (수정자 · 변경자 · @author 도 함께)"
-          >
-            <input
-              type="checkbox"
-              checked={options.ignoreAuthor}
-              onChange={setOpt('ignoreAuthor')}
-            />
-            작성자
-          </label>
-          <label
-            className="toggle"
-            title="#if 0 … #endif 처럼 조건이 거짓으로 못박혀 실행되지 않는 블록을 비교에서 뺍니다 (#ifdef 는 그대로 비교합니다)"
-          >
-            <input
-              type="checkbox"
-              checked={options.ignoreDeadCode}
-              onChange={setOpt('ignoreDeadCode')}
-            />
-            죽은 코드
-          </label>
-        </div>
-
-        <div className="divider" />
-
-        <label className="toggle">
-          <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} />
-          줄바꿈
-        </label>
-
-        <div className="divider" />
-
-        <div className="group">
-          <span className="label">글자</span>
-          <div className="btn-group">
-            <button
-              type="button"
-              className="btn sm"
-              onClick={() => setCodeFontSize((v) => Math.max(FONT_MIN, v - FONT_STEP))}
-              disabled={codeFontSize <= FONT_MIN}
-              title="코드 글자 작게"
-              aria-label="코드 글자 작게"
-            >
-              가−
-            </button>
-            <button
-              type="button"
-              className="btn sm font-size"
-              onClick={() => setCodeFontSize(FONT_DEFAULT)}
-              disabled={codeFontSize === FONT_DEFAULT}
-              title="기본 크기로 되돌리기"
-            >
-              {codeFontSize}px
-            </button>
-            <button
-              type="button"
-              className="btn sm"
-              onClick={() => setCodeFontSize((v) => Math.min(FONT_MAX, v + FONT_STEP))}
-              disabled={codeFontSize >= FONT_MAX}
-              title="코드 글자 크게"
-              aria-label="코드 글자 크게"
-            >
-              가+
-            </button>
-          </div>
-        </div>
-
-        <div style={{ flex: 1 }} />
-
-        <button type="button" className="btn sm" onClick={() => setShowSidebar((v) => !v)}>
-          {showSidebar ? '◧ 목록 숨기기' : '▣ 목록 보기'}
+      {/* 좌우 선택은 위에 그대로 두고 아래 3단만 갈린다 (`PaneMode` 주석 참고) */}
+      <div className="mode-tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'code'}
+          className={`mode-tab ${mode === 'code' ? 'active' : ''}`}
+          onClick={() => setMode('code')}
+        >
+          코드 비교
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === 'schema'}
+          className={`mode-tab ${mode === 'schema' ? 'active' : ''}`}
+          onClick={() => setMode('schema')}
+          title="같은 좌우 선택으로 데이터 스키마(테이블 정의)를 견줍니다"
+        >
+          스키마 비교
         </button>
       </div>
 
-      <div className={`main ${showSidebar ? '' : 'no-sidebar'}`}>
-        {showSidebar && (
-          <aside className="sidebar">
-            {/* 비교한 파일이 없을 때 유사도 100% 는 오해를 부르므로 카드를 띄우지 않는다 */}
-            {comparison && includedFiles.length > 0 ? (
-              <SummaryCard
-                stats={overall}
-                fileCount={includedFiles.length}
-                changedCount={changedCount}
-                leftLabel={`${leftTag} ${left}`}
-                rightLabel={`${rightTag} ${right}`}
-                loading={comparing}
-              />
-            ) : (
-              <div className="summary-empty">
-                {comparing ? '비교하는 중…' : '비교할 파일이 없습니다.'}
-              </div>
-            )}
-
-            <div className="filter">
-              <input
-                ref={fileSearchRef}
-                className="search"
-                type="search"
-                placeholder="파일 경로 검색 ( / )"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={onlyChanged}
-                  onChange={(e) => setOnlyChanged(e.target.checked)}
-                />
-                변경된 파일만
-              </label>
-            </div>
-
-            <div className="filelist-head">
-              파일 <b>{num(visibleFiles.length)}</b>개
-              {selectedPackage && <span className="pkg-filter">· {selectedPackage}</span>}
-              {comparison && comparison.skipped > 0 && (
-                <span
-                  className="skipped"
-                  title={
-                    '확장자가 대상이 아니거나 용량을 넘어 아예 읽지 않은 파일입니다.\n' +
-                    'change/config.ts 의 SCAN 에서 정합니다.'
-                  }
-                >
-                  · 대상 밖 {comparison.skipped}
-                </span>
-              )}
-
-              {/* 규칙 파일을 못 읽은 것은 조용히 넘어가면 안 된다 —
-                  접힌 줄 알았던 파일이 그냥 다 보이고 있는 상태다 */}
-              {exclude?.error && (
-                <span className="excl-error" title={exclude.error}>
-                  · ⚠ 제외 목록 오류
-                </span>
-              )}
-
-              {exclude && exclude.files > 0 && (
-                <button
-                  type="button"
-                  className={`excl-toggle ${showExcluded ? 'on' : ''}`}
-                  onClick={() => setShowExcluded((v) => !v)}
-                  title={
-                    `제외 목록: ${exclude.file}\n` +
-                    `규칙 ${exclude.rules}개로 ${exclude.files}개를 접었습니다.\n` +
-                    (exclude.changed > 0
-                      ? `그중 ${exclude.changed}개는 실제로 바뀌었습니다 — 눌러서 확인하세요.`
-                      : '눌러서 펼쳐 볼 수 있습니다.')
-                  }
-                >
-                  · 제외 {exclude.files}
-                  {exclude.changed > 0 && <b> · 변경 {exclude.changed}</b>}
-                </button>
-              )}
-            </div>
-
-            <FileList
-              files={visibleFiles}
-              selectedPath={selectedFile?.path ?? null}
-              onSelect={setSelectedPath}
-              emptyMessage={emptyFileMessage()}
-            />
-          </aside>
+      {mode === 'code' ? (
+        <>
+        {comparison && (
+          <PackageSummary
+            packages={comparison.packages}
+            selected={selectedPackage}
+            onSelect={setSelectedPackage}
+          />
         )}
 
-        <section className="viewer">
-          {selectedFile && diff ? (
-            <>
-              <DiffNav
-                hunks={diff.hunks}
-                diffEnabled
-                current={currentHunk}
-                onGo={goHunk}
-                onStep={stepHunk}
-                onPrevFile={() => goFile(-1)}
-                onNextFile={() => goFile(1)}
-                onOpenSearch={() => setSearchOpen(true)}
-                fileKey={selectedFile.path}
-              />
+        <div className="optionbar">
+          <div className="group">
+            <span className="label">코드</span>
+            <div className="btn-group">
+              <button
+                type="button"
+                className={`btn sm ${codeScope === 'changed' ? 'active' : ''}`}
+                onClick={() => setCodeScope('changed')}
+                title="변경된 부분만 보여줍니다 (Alt+A 로 전환)"
+              >
+                변경만
+              </button>
+              <button
+                type="button"
+                className={`btn sm ${codeScope === 'full' ? 'active' : ''}`}
+                onClick={() => setCodeScope('full')}
+                title="파일 전체를 diff 색과 함께 보여줍니다 (Alt+A 로 전환)"
+              >
+                전체
+              </button>
+            </div>
+          </div>
 
-              {searchOpen && (
-                <CodeSearchBar
-                  options={searchOpts}
-                  onChange={setSearchOpts}
-                  result={searchResult}
-                  index={matchIndex}
-                  onStep={stepMatch}
-                  onClose={closeSearch}
+          <div className="divider" />
+
+          <div className="group" style={{ opacity: codeScope === 'changed' ? 1 : 0.45 }}>
+            <span className="label">문맥</span>
+            <div className="btn-group">
+              {CONTEXT_CHOICES.map((c) => (
+                <button
+                  key={c.v}
+                  type="button"
+                  className={`btn sm ${contextLines === c.v ? 'active' : ''}`}
+                  onClick={() => setContextLines(c.v)}
+                  disabled={codeScope === 'full'}
+                  title={codeScope === 'full' ? '전체 보기에서는 문맥 설정이 필요 없습니다' : ''}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="divider" />
+
+          <div className="group">
+            <span className="label">보기</span>
+            <div className="btn-group">
+              <button
+                type="button"
+                className={`btn sm ${viewMode === 'split' ? 'active' : ''}`}
+                onClick={() => setViewMode('split')}
+              >
+                나란히
+              </button>
+              <button
+                type="button"
+                className={`btn sm ${viewMode === 'unified' ? 'active' : ''}`}
+                onClick={() => setViewMode('unified')}
+              >
+                통합
+              </button>
+            </div>
+          </div>
+
+          <div className="divider" />
+
+          <div className="group">
+            <span className="label">무시</span>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={options.ignoreWhitespace}
+                onChange={setOpt('ignoreWhitespace')}
+              />
+              공백
+            </label>
+            <label className="toggle">
+              <input type="checkbox" checked={options.ignoreCase} onChange={setOpt('ignoreCase')} />
+              대소문자
+            </label>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={options.ignoreBlankLines}
+                onChange={setOpt('ignoreBlankLines')}
+              />
+              빈 줄
+            </label>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={options.ignoreComments}
+                onChange={setOpt('ignoreComments')}
+              />
+              주석
+            </label>
+            <label
+              className="toggle"
+              title="작성자 : 홍길동 처럼 이름을 적어 둔 줄을 비교에서 뺍니다 (수정자 · 변경자 · @author 도 함께)"
+            >
+              <input
+                type="checkbox"
+                checked={options.ignoreAuthor}
+                onChange={setOpt('ignoreAuthor')}
+              />
+              작성자
+            </label>
+            <label
+              className="toggle"
+              title="#if 0 … #endif 처럼 조건이 거짓으로 못박혀 실행되지 않는 블록을 비교에서 뺍니다 (#ifdef 는 그대로 비교합니다)"
+            >
+              <input
+                type="checkbox"
+                checked={options.ignoreDeadCode}
+                onChange={setOpt('ignoreDeadCode')}
+              />
+              죽은 코드
+            </label>
+          </div>
+
+          <div className="divider" />
+
+          <label className="toggle">
+            <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} />
+            줄바꿈
+          </label>
+
+          <div className="divider" />
+
+          <div className="group">
+            <span className="label">글자</span>
+            <div className="btn-group">
+              <button
+                type="button"
+                className="btn sm"
+                onClick={() => setCodeFontSize((v) => Math.max(FONT_MIN, v - FONT_STEP))}
+                disabled={codeFontSize <= FONT_MIN}
+                title="코드 글자 작게"
+                aria-label="코드 글자 작게"
+              >
+                가−
+              </button>
+              <button
+                type="button"
+                className="btn sm font-size"
+                onClick={() => setCodeFontSize(FONT_DEFAULT)}
+                disabled={codeFontSize === FONT_DEFAULT}
+                title="기본 크기로 되돌리기"
+              >
+                {codeFontSize}px
+              </button>
+              <button
+                type="button"
+                className="btn sm"
+                onClick={() => setCodeFontSize((v) => Math.min(FONT_MAX, v + FONT_STEP))}
+                disabled={codeFontSize >= FONT_MAX}
+                title="코드 글자 크게"
+                aria-label="코드 글자 크게"
+              >
+                가+
+              </button>
+            </div>
+          </div>
+
+          <div style={{ flex: 1 }} />
+
+          <button type="button" className="btn sm" onClick={() => setShowSidebar((v) => !v)}>
+            {showSidebar ? '◧ 목록 숨기기' : '▣ 목록 보기'}
+          </button>
+        </div>
+
+        <div className={`main ${showSidebar ? '' : 'no-sidebar'}`}>
+          {showSidebar && (
+            <aside className="sidebar">
+              {/* 비교한 파일이 없을 때 유사도 100% 는 오해를 부르므로 카드를 띄우지 않는다 */}
+              {comparison && includedFiles.length > 0 ? (
+                <SummaryCard
+                  stats={overall}
+                  fileCount={includedFiles.length}
+                  changedCount={changedCount}
+                  leftLabel={`${leftTag} ${left}`}
+                  rightLabel={`${rightTag} ${right}`}
+                  loading={comparing}
                 />
+              ) : (
+                <div className="summary-empty">
+                  {comparing ? '비교하는 중…' : '비교할 파일이 없습니다.'}
+                </div>
               )}
 
-              <div className="file-title">
-                <b>{selectedFile.path}</b>
+              <div className="filter">
+                <input
+                  ref={fileSearchRef}
+                  className="search"
+                  type="search"
+                  placeholder="파일 경로 검색 ( / )"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    checked={onlyChanged}
+                    onChange={(e) => setOnlyChanged(e.target.checked)}
+                  />
+                  변경된 파일만
+                </label>
               </div>
 
-              <DiffViewer
-                diff={diff}
-                fileKey={selectedFile.path}
-                fileName={selectedFile.name}
-                leftText={content?.leftText ?? null}
-                rightText={content?.rightText ?? null}
-                leftLabel={left}
-                rightLabel={right}
-                leftTag={leftTag}
-                rightTag={rightTag}
-                leftTagClass={sideTagClass(envPair.left)}
-                rightTagClass={sideTagClass(envPair.right)}
-                viewMode={viewMode}
-                context={effectiveContext}
-                wrap={wrap}
-                syncScroll={syncScroll}
-                onToggleSync={toggleSync}
-                currentHunk={currentHunk}
-                scrollSeq={scrollSeq}
-                onCurrentHunkChange={goHunk}
-                searchByRow={searchResult.byRow}
-                activeMatch={activeMatch}
-              />
-            </>
-          ) : selectedFile ? (
-            <>
-              <div className="file-title">
-                <b>{selectedFile.path}</b>
-                {!contentError && <span className="loading">불러오는 중…</span>}
-              </div>
-              <div className="empty">
-                {contentError ? (
-                  <>
-                    <h2>파일을 읽지 못했습니다</h2>
-                    <p className="error-detail">{contentError}</p>
-                  </>
-                ) : (
-                  <h2>파일을 읽는 중입니다</h2>
+              <div className="filelist-head">
+                파일 <b>{num(visibleFiles.length)}</b>개
+                {selectedPackage && <span className="pkg-filter">· {selectedPackage}</span>}
+                {comparison && comparison.skipped > 0 && (
+                  <span
+                    className="skipped"
+                    title={
+                      '확장자가 대상이 아니거나 용량을 넘어 아예 읽지 않은 파일입니다.\n' +
+                      'change/config.ts 의 SCAN 에서 정합니다.'
+                    }
+                  >
+                    · 대상 밖 {comparison.skipped}
+                  </span>
+                )}
+
+                {/* 규칙 파일을 못 읽은 것은 조용히 넘어가면 안 된다 —
+                    접힌 줄 알았던 파일이 그냥 다 보이고 있는 상태다 */}
+                {exclude?.error && (
+                  <span className="excl-error" title={exclude.error}>
+                    · ⚠ 제외 목록 오류
+                  </span>
+                )}
+
+                {local.excluded > 0 && (
+                  <button
+                    type="button"
+                    className={`excl-toggle ${showExcluded ? 'on' : ''}`}
+                    onClick={() => setShowExcluded((v) => !v)}
+                    title={[
+                      exclude?.file
+                        ? `규칙 파일(${exclude.file}) ${exclude.rules}개`
+                        : '규칙 파일 없음',
+                      local.byMine > 0 ? `내 제외 목록 ${local.byMine}개` : null,
+                      `합쳐서 ${local.excluded}개를 접었습니다.`,
+                      local.excludedChanged > 0
+                        ? `그중 ${local.excludedChanged}개는 실제로 바뀌었습니다 — 눌러서 확인하세요.`
+                        : '눌러서 펼쳐 볼 수 있습니다.',
+                    ]
+                      .filter(Boolean)
+                      .join('\n')}
+                  >
+                    · 제외 {local.excluded}
+                    {local.byMine > 0 && <i className="mine"> (내 {local.byMine})</i>}
+                    {local.excludedChanged > 0 && <b> · 변경 {local.excludedChanged}</b>}
+                  </button>
                 )}
               </div>
-            </>
-          ) : (
-            <div className="empty">
-              <h2>{comparing ? '비교하는 중…' : '비교할 파일을 고르세요'}</h2>
-              <p>
-                위에서 좌우의 환경·날짜를 고르면 바뀐 패키지와 파일이 표시됩니다.
-                <br />
-                왼쪽 목록에서 파일을 누르면 diff 가 열립니다.
-              </p>
-            </div>
+
+              <FileList
+                files={visibleFiles}
+                selectedPath={selectedFile?.path ?? null}
+                onSelect={setSelectedPath}
+                onToggleExclude={toggleMyExclude}
+                emptyMessage={emptyFileMessage()}
+              />
+            </aside>
           )}
-        </section>
-      </div>
+
+          <section className="viewer">
+            {selectedFile && diff ? (
+              <>
+                <DiffNav
+                  hunks={diff.hunks}
+                  diffEnabled
+                  current={currentHunk}
+                  onGo={goHunk}
+                  onStep={stepHunk}
+                  onPrevFile={() => goFile(-1)}
+                  onNextFile={() => goFile(1)}
+                  onOpenSearch={() => setSearchOpen(true)}
+                  fileKey={selectedFile.path}
+                />
+
+                {searchOpen && (
+                  <CodeSearchBar
+                    options={searchOpts}
+                    onChange={setSearchOpts}
+                    result={searchResult}
+                    index={matchIndex}
+                    onStep={stepMatch}
+                    onClose={closeSearch}
+                  />
+                )}
+
+                <div className="file-title">
+                  <b>{selectedFile.path}</b>
+                </div>
+
+                <DiffViewer
+                  diff={diff}
+                  fileKey={selectedFile.path}
+                  fileName={selectedFile.name}
+                  leftText={content?.leftText ?? null}
+                  rightText={content?.rightText ?? null}
+                  leftLabel={left}
+                  rightLabel={right}
+                  leftTag={leftTag}
+                  rightTag={rightTag}
+                  leftTagClass={sideTagClass(envPair.left)}
+                  rightTagClass={sideTagClass(envPair.right)}
+                  viewMode={viewMode}
+                  context={effectiveContext}
+                  wrap={wrap}
+                  syncScroll={syncScroll}
+                  onToggleSync={toggleSync}
+                  currentHunk={currentHunk}
+                  scrollSeq={scrollSeq}
+                  onCurrentHunkChange={goHunk}
+                  searchByRow={searchResult.byRow}
+                  activeMatch={activeMatch}
+                />
+              </>
+            ) : selectedFile ? (
+              <>
+                <div className="file-title">
+                  <b>{selectedFile.path}</b>
+                  {!contentError && <span className="loading">불러오는 중…</span>}
+                </div>
+                <div className="empty">
+                  {contentError ? (
+                    <>
+                      <h2>파일을 읽지 못했습니다</h2>
+                      <p className="error-detail">{contentError}</p>
+                    </>
+                  ) : (
+                    <h2>파일을 읽는 중입니다</h2>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="empty">
+                <h2>{comparing ? '비교하는 중…' : '비교할 파일을 고르세요'}</h2>
+                <p>
+                  위에서 좌우의 환경·날짜를 고르면 바뀐 패키지와 파일이 표시됩니다.
+                  <br />
+                  왼쪽 목록에서 파일을 누르면 diff 가 열립니다.
+                </p>
+              </div>
+            )}
+          </section>
+        </div>
+        </>
+      ) : (
+        <SchemaPane
+          source={base}
+          leftEnvId={envPair.left}
+          rightEnvId={envPair.right}
+          leftDate={left}
+          rightDate={right}
+          showSidebar={showSidebar}
+          onToggleSidebar={() => setShowSidebar((v) => !v)}
+          myExclude={mySchemaExclude}
+          onChangeMyExclude={setMySchemaExclude}
+        />
+      )}
     </div>
   )
 }

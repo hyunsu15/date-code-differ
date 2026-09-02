@@ -39,6 +39,8 @@ const FALLBACK: SourceConfig = {
   root: './sample-code',
   encoding: 'auto',
   excludeFile: '',
+  schemaRoot: '',
+  schemaExcludeFile: '',
 }
 
 /**
@@ -63,9 +65,18 @@ const asEncoding = (v: unknown): TextEncodingName =>
 function parseSource(value: Record<string, unknown>): SourceConfig {
   const encoding = asEncoding(value.encoding)
   const excludeFile = asString(value.excludeFile)
+  const schemaRoot = asString(value.schemaRoot)
+  const schemaExcludeFile = asString(value.schemaExcludeFile)
 
   if (value.mode !== 'ssh') {
-    return { mode: 'local', root: asString(value.root), encoding, excludeFile }
+    return {
+      mode: 'local',
+      root: asString(value.root),
+      encoding,
+      excludeFile,
+      schemaRoot,
+      schemaExcludeFile,
+    }
   }
 
   const port = Number(value.port)
@@ -78,6 +89,8 @@ function parseSource(value: Record<string, unknown>): SourceConfig {
     root: asString(value.root),
     encoding,
     excludeFile,
+    schemaRoot,
+    schemaExcludeFile,
   }
 }
 
@@ -139,6 +152,13 @@ export function sourceParams(config: SourceConfig): Record<string, string> {
   // 제외 목록을 안 쓰면 보내지 않는다 — 쓰지 않는 배치에서 URL 이 예전과 똑같이 유지된다
   const excludeFile = (config.excludeFile ?? '').trim()
   if (excludeFile) params.excludeFile = excludeFile
+
+  // 스키마 위치도 마찬가지 — 안 쓰면 안 보낸다
+  const schemaRoot = (config.schemaRoot ?? '').trim()
+  if (schemaRoot) params.schemaRoot = schemaRoot
+
+  const schemaExcludeFile = (config.schemaExcludeFile ?? '').trim()
+  if (schemaExcludeFile) params.schemaExcludeFile = schemaExcludeFile
 
   if (config.mode !== 'ssh') {
     params.mode = 'local'

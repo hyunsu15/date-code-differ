@@ -4,6 +4,8 @@ import type {
   ComparisonResponse,
   DiffOptions,
   FileContentResponse,
+  SchemaComparisonResponse,
+  SchemaSnapshotListResponse,
   SnapshotListResponse,
   SourceConfig,
 } from '../types.ts'
@@ -84,6 +86,42 @@ export function fetchComparison(
     left,
     right,
     ...optionParams(options),
+  })
+}
+
+/**
+ * 좌우 환경의 스키마 날짜 목록.
+ *
+ * 코드와 달리 **환경을 따로 보낸다.** 코드는 고른 환경 폴더가 이미 `source.root` 에
+ * 붙어 있지만, 스키마는 `schemaRoot` 아래에 환경 폴더가 따로 붙어서
+ * 서버가 그 이름을 알아야 경로를 만들 수 있다.
+ */
+export function fetchSchemaSnapshots(
+  source: SourceConfig,
+  leftEnv: string,
+  rightEnv: string
+): Promise<SchemaSnapshotListResponse> {
+  return getJson<SchemaSnapshotListResponse>('/schemas/snapshots', {
+    ...sourceParams(source),
+    leftEnv,
+    rightEnv,
+  })
+}
+
+/** 좌우 스키마 대조 — 테이블별 컬럼·제약·인덱스 차이 */
+export function fetchSchemaComparison(
+  source: SourceConfig,
+  leftEnv: string,
+  rightEnv: string,
+  left: string,
+  right: string
+): Promise<SchemaComparisonResponse> {
+  return getJson<SchemaComparisonResponse>('/schemas', {
+    ...sourceParams(source),
+    leftEnv,
+    rightEnv,
+    left,
+    right,
   })
 }
 

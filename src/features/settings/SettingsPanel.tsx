@@ -14,6 +14,18 @@ interface SettingsPanelProps {
   value: SourceSelection
   onApply: (next: SourceSelection) => void
   onClose: () => void
+  /**
+   * **내 제외 목록** 원문 (`features/settings/localExclude.ts`).
+   *
+   * 위치 설정과 달리 **적용을 누르지 않아도 바로** 저장된다 — 이 브라우저에만 남는
+   * 값이고, 파일 목록의 접기 버튼도 같은 목록을 그때그때 고치기 때문이다.
+   * 두 자리가 다르게 굴면 어느 쪽이 반영된 것인지 알 수 없다.
+   */
+  myExclude: string
+  onChangeMyExclude: (text: string) => void
+  /** 스키마 쪽 내 목록 — 대상이 테이블·컬럼이라 소스 쪽과 따로 둔다 */
+  mySchemaExclude: string
+  onChangeMySchemaExclude: (text: string) => void
 }
 
 /**
@@ -27,6 +39,10 @@ interface Draft {
   localRoot: string
   /** 로컬일 때의 제외 목록 파일. SSH 쪽 값은 `ssh.excludeFile` 이 따로 든다 */
   localExclude: string
+  /** 로컬일 때의 스키마 폴더. SSH 쪽 값은 `ssh.schemaRoot` 이 따로 든다 */
+  localSchemaRoot: string
+  /** 로컬일 때의 스키마 제외 목록 파일. SSH 쪽은 `ssh.schemaExcludeFile` */
+  localSchemaExclude: string
   ssh: SshSourceConfig
   /** 인코딩은 두 모드가 함께 쓴다 */
   encoding: TextEncodingName
@@ -39,6 +55,8 @@ function toDraft(selection: SourceSelection): Draft {
     mode: source.mode,
     localRoot: source.mode === 'local' ? source.root : '',
     localExclude: source.mode === 'local' ? (source.excludeFile ?? '') : '',
+    localSchemaRoot: source.mode === 'local' ? (source.schemaRoot ?? '') : '',
+    localSchemaExclude: source.mode === 'local' ? (source.schemaExcludeFile ?? '') : '',
     ssh: source.mode === 'ssh' ? source : DEFAULT_SSH_SOURCE,
     encoding: source.encoding,
   }
@@ -51,6 +69,8 @@ function draftSource(draft: Draft): SourceConfig {
       root: draft.localRoot.trim(),
       encoding: draft.encoding,
       excludeFile: draft.localExclude.trim(),
+      schemaRoot: draft.localSchemaRoot.trim(),
+      schemaExcludeFile: draft.localSchemaExclude.trim(),
     }
   }
   return {
@@ -70,7 +90,15 @@ function draftSource(draft: Draft): SourceConfig {
  * 프리셋은 `change/config.ts` 에서 온다. 값을 직접 고치면 "직접 입력"으로 바뀌고
  * 이 브라우저의 localStorage 에만 저장된다.
  */
-export default function SettingsPanel({ value, onApply, onClose }: SettingsPanelProps) {
+export default function SettingsPanel({
+  value,
+  onApply,
+  onClose,
+  myExclude,
+  onChangeMyExclude,
+  mySchemaExclude,
+  onChangeMySchemaExclude,
+}: SettingsPanelProps) {
   const [draft, setDraft] = useState<Draft>(() => toDraft(value))
 
   useEffect(() => {
@@ -293,6 +321,112 @@ export default function SettingsPanel({ value, onApply, onClose }: SettingsPanel
               고친 뒤에는 <b>새로고침</b>을 누르면 다시 읽습니다.
             </small>
           </label>
+
+          {/* 스키마 폴더는 소스와 다른 자리에 있어 경로를 따로 받는다 */}
+          <label className="field">
+            <span>스키마 폴더</span>
+            <input
+              type="text"
+              value={draft.mode === 'local' ? draft.localSchemaRoot : (draft.ssh.schemaRoot ?? '')}
+              onChange={(e) =>
+                draft.mode === 'local'
+                  ? edit({ localSchemaRoot: e.target.value })
+                  : setSsh('schemaRoot', e.target.value)
+              }
+              placeholder={
+                draft.mode === 'local'
+                  ? '비우면 스키마 비교가 안 보입니다. 예: ./sample-schema'
+                  : '비우면 스키마 비교가 안 보입니다. 예: /data/db-schema'
+              }
+              spellCheck={false}
+            />
+            <small>
+              데이터 스키마 덤프가 쌓이는 폴더입니다. 그 아래는 <b>환경 폴더</b>로 갈리고, 그 안에
+              날짜별 파일이 하나씩 있습니다 (<code>snapshot_&lt;환경&gt;_&lt;날짜&gt;.txt</code>).
+              <br />
+              이름 규칙과 구분자는 <code>change/config.ts</code> 의 <code>SCHEMA</code> 에서
+              정합니다.
+            </small>
+          </label>
+
+          {/* 스키마 쪽 팀 공용 규칙 — 소스 쪽 제외 목록 파일과 같은 성격이다 */}
+          <label className="field">
+            <span>스키마 제외 목록 파일</span>
+            <input
+              type="text"
+              value={
+                draft.mode === 'local'
+                  ? draft.localSchemaExclude
+                  : (draft.ssh.schemaExcludeFile ?? '')
+              }
+              onChange={(e) =>
+                draft.mode === 'local'
+                  ? edit({ localSchemaExclude: e.target.value })
+                  : setSsh('schemaExcludeFile', e.target.value)
+              }
+              placeholder={
+                draft.mode === 'local'
+                  ? '비우면 접지 않습니다. 예: ./sample-schema/exclude.txt'
+                  : '비우면 접지 않습니다. 예: /data/db-schema/exclude.txt'
+              }
+              spellCheck={false}
+            />
+            <small>
+              <b>팀이 함께 쓰는</b> 스키마 제외 규칙입니다. 대상이 파일 경로가 아니라{' '}
+              <b>테이블과 그 안의 이름</b>인 것만 다르고 문법은 위 제외 목록 파일과 같습니다.
+              <br />
+              <code>TB_ORD_BAK</code> 테이블 통째 · <code>TB_ORD.ORD_MEMO</code> 그 컬럼만 ·{' '}
+              <code>*.REG_DTM</code> 모든 테이블의 그 컬럼 · <code>IX_*_TMP</code> 이름이 맞는
+              인덱스·제약
+              <br />
+              고친 뒤에는 <b>새로고침</b>을 누르면 다시 읽습니다.
+            </small>
+          </label>
+
+          <label className="field">
+            <span>내 스키마 제외 목록</span>
+            <textarea
+              className="my-exclude"
+              rows={4}
+              value={mySchemaExclude}
+              onChange={(e) => onChangeMySchemaExclude(e.target.value)}
+              placeholder={'한 줄에 하나씩 적습니다.\nTB_ORD_BAK\nTB_ORD.ORD_MEMO\n*.REG_DTM'}
+              spellCheck={false}
+            />
+            <small>
+              <b>이 브라우저에만 남고 바로 반영됩니다.</b> 문법은 위 스키마 제외 목록 파일과
+              같습니다.
+              <br />
+              테이블 목록과 컬럼·제약·인덱스 줄의 <b>⊘</b> 버튼을 누르면 여기 한 줄로 들어옵니다.
+            </small>
+          </label>
+
+
+          {/*
+            내 제외 목록 — 위 "제외 목록 파일" 과 목적이 다르다.
+            그쪽은 팀이 함께 쓰는 규칙이고, 이쪽은 지금 나만 잠깐 치우는 것이다.
+          */}
+          <label className="field">
+            <span>내 제외 목록</span>
+            <textarea
+              className="my-exclude"
+              rows={4}
+              value={myExclude}
+              onChange={(e) => onChangeMyExclude(e.target.value)}
+              placeholder={'한 줄에 하나씩 적습니다.\nord/ord_bak.pc\n*_test.pc\ntmp'}
+              spellCheck={false}
+            />
+            <small>
+              <b>이 브라우저에만 남고 바로 반영됩니다</b> — 적용을 누르지 않아도 됩니다. 팀이 함께
+              쓰는 위 <b>제외 목록 파일</b> 과 달리, 지금 나만 잠깐 치우고 싶을 때 씁니다.
+              <br />
+              문법은 위 파일과 같습니다 (<code>*_bak.pc</code> 는 어느 폴더에 있든,{' '}
+              <code>ord/tmp</code> 는 그 아래 전부, <code>#</code> 로 시작하면 설명).
+              <br />
+              파일 목록의 <b>⊘</b> 버튼을 누르면 그 파일이 여기 한 줄로 들어옵니다.
+            </small>
+          </label>
+
 
           <label className="field">
             <span>소스 인코딩</span>
