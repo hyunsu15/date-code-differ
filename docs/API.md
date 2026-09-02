@@ -22,6 +22,8 @@
 | `identityFile` | String | N | 개인키 경로. 비우면 ssh 기본 키 |
 | `encoding` | String | N | `auto`(기본) · `utf-8` · `euc-kr`. 모르는 값은 `auto` 로 본다 |
 | `excludeFile` | String | N | 목록에서 접어 둘 파일들이 적힌 텍스트 파일 경로. 비우면 접지 않는다 |
+| `schemaRoot` | String | N | 데이터 스키마 덤프가 쌓이는 폴더. 비우면 스키마 API 가 빈 목록을 준다 |
+| `schemaExcludeFile` | String | N | 스키마 비교에서 접어 둘 것들이 적힌 텍스트 파일 경로. 비우면 접지 않는다 |
 
 **자격증명 파라미터는 없다.** SSH 인증은 이 API 가 아니라 **ssh 가 알아서 한다** —
 개인키 · ssh-agent · `~/.ssh/config`. 비밀번호는 받지도, 보관하지도 않는다.
@@ -35,6 +37,13 @@
 
 이 파라미터는 **2번 비교 API 에서만** 뜻이 있다 (1·3번은 받아도 무시한다).
 읽어 들인 규칙은 캐시되며 `?refresh=1`(1번 API) 로 다시 읽는다.
+
+`schemaRoot` 도 같은 규칙으로 푼다 (`root` 와 무관, local 은 프로젝트 폴더 기준, ssh 는 원격 경로 그대로).
+**4·5번 스키마 API 에서만** 뜻이 있다. 그 아래는 환경 폴더로 갈리고 날짜별 파일이 하나씩 있다.
+
+```
+<schemaRoot>/<leftEnv>/snapshot_<leftEnv>_2026-09-01.txt
+```
 
 ```
 GET /api/v1/snapshots
@@ -336,6 +345,145 @@ GET /api/v1/comparisons/files?left={id}&right={id}&path={상대경로}
 
 ---
 
+## 4. 스키마 날짜 목록
+
+```
+GET /api/v1/schemas/snapshots?leftEnv=prod&rightEnv=test[&위치 파라미터]
+```
+
+`<schemaRoot>/<환경>/` 안의 파일 이름에서 날짜를 뽑아 최신순으로 돌려준다.
+**날짜가 폴더가 아니라 파일 이름에 있다** — 이름 규칙은 `change/config.ts` 의
+`SCHEMA.fileName`(기본 `snapshot_{env}_{date}.txt`)에서 정한다.
+
+| 이름 | 타입 | 필수 | 의미 |
+| ---- | ---- | ---- | ---- |
+| `leftEnv` | String | N | 왼쪽 환경 폴더명 (`ENV_FOLDERS` 의 `path`). 비우면 `schemaRoot` 바로 아래 |
+| `rightEnv` | String | N | 오른쪽 환경 폴더명. `leftEnv` 와 같으면 한 번만 읽는다 |
+
+**환경을 따로 받는 이유.** 코드 비교는 고른 환경 폴더가 이미 `root` 에 붙어서 오지만,
+스키마는 `schemaRoot` 아래에 환경 폴더가 따로 붙는다 — 서버가 그 이름을 알아야 경로를 만든다.
+
+**응답**
+
+```json
+{
+  "root": "./sample-schema",
+  "left":  [{ "id": "2026-09-01", "sortKey": "20260901" },
+            { "id": "2026-08-01", "sortKey": "20260801" }],
+  "right": [{ "id": "2026-09-01", "sortKey": "20260901" }]
+}
+```
+
+| 필드 | 타입 | 의미 |
+| ---- | ---- | ---- |
+| `root` | String | 요청의 `schemaRoot` 값. 빈 문자열이면 이 기능을 쓰지 않는 것 |
+| `left` `right` | Array | 그 환경의 날짜 목록 (최신순) |
+| `items[].id` | String | 파일 이름에서 뽑은 날짜 — 5번 API 의 `left`/`right` 에 그대로 넣는다 |
+| `items[].sortKey` | String | 이름에서 뽑은 8자리 숫자. 못 뽑으면 빈 문자열 |
+
+**폴더가 없어도 오류가 아니다** — 빈 배열을 준다. 스키마를 아직 안 올린 환경이 있는 것이
+정상이라, 그것 때문에 화면이 죽으면 안 된다.
+
+---
+
+## 5. 스키마 대조
+
+```
+GET /api/v1/schemas?left=2026-08-01&right=2026-09-01&leftEnv=prod&rightEnv=test[&위치 파라미터]
+```
+
+좌우 스키마 파일을 읽어 **테이블 단위 구조**로 견준다. 줄 단위 diff 가 아니다 —
+이름으로 짝지어 컬럼 · 제약 · 인덱스를 각각 대조한다.
+
+| 이름 | 타입 | 필수 | 의미 |
+| ---- | ---- | ---- | ---- |
+| `left` `right` | String | **Y** | 4번 API 가 준 `id` |
+| `leftEnv` `rightEnv` | String | N | 4번과 같음 |
+
+**응답**
+
+```json
+{
+  "left": "2026-08-01",
+  "right": "2026-09-01",
+  "leftDescription": "주문·결제계 스키마 — 2026-08 정기배포 반영본",
+  "rightDescription": "주문·결제계 스키마 — 2026-09 정기배포 반영본",
+  "malformed": 0,
+  "tables": [
+    {
+      "name": "TB_ORD",
+      "status": "modified",
+      "primaryKeyChanged": true,
+      "changedKinds": ["column", "constraint"],
+      "sections": {
+        "column": {
+          "kind": "column",
+          "total": 8, "added": 1, "removed": 1, "modified": 1, "systemHidden": 0,
+          "rows": [
+            {
+              "name": "ORD_AMT",
+              "status": "modified",
+              "systemNamed": false,
+              "left":  { "badge": null, "value": "NUMBER(15,2)" },
+              "right": { "badge": null, "value": "NUMBER(18,2)" }
+            }
+          ]
+        },
+        "constraint": { "kind": "constraint", "total": 2, "added": 0, "removed": 0, "modified": 1, "systemHidden": 8, "rows": [] },
+        "index":      { "kind": "index",      "total": 4, "added": 1, "removed": 0, "modified": 0, "systemHidden": 0, "rows": [] }
+      }
+    }
+  ]
+}
+```
+
+| 필드 | 타입 | 의미 |
+| ---- | ---- | ---- |
+| `left` `right` | String | 실제로 읽은 날짜 |
+| `leftDescription` `rightDescription` | String | 파일 맨 위 `#` 주석. 좌우가 다르면 그것도 변경이다 |
+| `malformed` | Number | 종류를 못 알아본 줄 수. 0 이 아니면 `SCHEMA.separator` 를 의심한다 |
+| `malformedSample` | Array | 못 읽은 줄의 원문 앞부분 (최대 3개) — 원인을 짚는 데 쓴다 |
+| `malformedHint` | String | 못 읽은 원인 추정. 짚을 수 없으면 빈 문자열 |
+| `exclude.file` | String | 요청의 `schemaExcludeFile` 값 |
+| `exclude.rules` | Array | 읽어 들인 규칙 원문들. **적용은 화면이 한다** (아래 참고) |
+| `exclude.error` | String|null | 규칙 파일을 읽지 못했을 때의 안내 |
+| `tables[].status` | String | `added` · `removed` · `modified` · `same` |
+| `tables[].primaryKeyChanged` | Boolean | 기본키가 움직였는지. **양쪽에 다 있는 테이블에서만** 참이 된다 |
+| `tables[].changedKinds` | Array | 변경이 있는 종류들 — 화면의 종류 필터가 쓴다 |
+| `sections[종류].total` | Number | 접은 것을 뺀 줄 수 |
+| `sections[종류].systemHidden` | Number | 시스템 이름이라 접은 줄 수 (아래 참고) |
+| `rows[].left` `rows[].right` | Object\|null | 한쪽에만 있으면 null. `badge` 는 제약 종류·유니크 여부 |
+
+### 값을 그대로 견주지 않는 세 자리
+
+Oracle 딕셔너리를 그대로 흘린 텍스트라, 값을 곧이곧대로 비교하면 없는 변경이 생긴다.
+서버가 대조 전에 셋을 정리한다 (`src/lib/schemaParse.ts`).
+
+| | 무엇이 문제인가 | 어떻게 |
+| --- | --- | --- |
+| 시스템 이름 | Oracle 이 NOT NULL 컬럼마다 만드는 `SYS_C0011234` 는 **번호가 DB 마다 다르다.** 운영↔테스트에서 내용이 같아도 전부 변경으로 뜬다 | `SCHEMA.systemNamePattern` 에 걸리면 접고 수만 남긴다 (`systemHidden`) |
+| 길이 | `DATA_LENGTH` 는 문자형에서만 뜻이 있다. NUMBER 는 늘 22, DATE 는 늘 7 | 세 필드를 표시용 타입 하나로 합쳐 견준다 (`NUMBER(15,2)`) |
+| 다중 컬럼 | 기본키·인덱스가 `POSITION` 을 단 여러 줄로 흩어져 온다 | 이름으로 묶고 위치 순으로 이어 `ORD_NO, ORD_SEQ` 한 줄로 |
+
+**오류**
+
+| 상황 | code | HTTP |
+| ---- | ---- | ---- |
+| `left` `right` 중 하나라도 빔 | `MISSING_PARAM` | 400 |
+
+파일이 없으면 오류가 아니라 **빈 스냅샷**으로 본다 (그 날짜에 덤프가 없는 것은 정상이다).
+
+### 제외 규칙은 왜 서버가 적용하지 않나
+
+스키마 접기는 세 겹이다 — 팀 규칙 파일 · 화면에만 있는 내 목록 · 종류 토글.
+뒤 둘은 서버가 모르므로, 서버가 일부만 적용하면 **요약 숫자와 목록이 갈린다.**
+그래서 서버는 파일을 읽어 규칙만 실어 보내고(`exclude.rules`), 셋을 합쳐 접고 다시 세는
+일은 화면이 한 자리에서 한다 (`src/features/schema/schemaExclude.ts`).
+
+규칙 파일 내용은 캐시되므로 파일을 고친 뒤에는 `GET /snapshots?refresh=1`(화면의 새로고침)이 필요하다.
+
+---
+
 ## 경로 안전장치
 
 외부 폴더 밖을 읽지 못하도록 세 겹으로 막는다.
@@ -364,6 +512,7 @@ SSH 는 `execFile` 로 인자 배열을 넘겨 **로컬 셸 보간이 없다.** 
 | 스냅샷 파일 목록 | 위치 + 스냅샷 id | `GET /snapshots?refresh=1` |
 | 좌우 비교 결과 | 위치 + `left` + `right` + 무시 옵션 6비트 | 위와 같음 |
 | 제외 규칙 | 위치 + `excludeFile` | 위와 같음 |
+| 읽어 들인 스키마 | 위치 + 스키마 파일 경로 + 구분자 + 시스템 이름 규칙 | 위와 같음 |
 
 "위치" 키에는 `encoding` 도 들어간다 — 인코딩이 다르면 같은 파일도 다른 내용으로 읽힌다.
 
