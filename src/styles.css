@@ -873,6 +873,9 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .snapshot-picker .pick.invalid:focus-within { box-shadow: 0 0 0 2px var(--del-bg); }
 .snapshot-picker .pick.invalid input { color: var(--del-fg); }
 
+/* 환경 묶기 — 켜진 상태는 버튼 묶음의 선택 표시와 같은 색을 쓴다 */
+.snapshot-picker .env-link.on { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+
 .snapshot-picker .pick-arrow {
   color: var(--faint);
   font-size: 15px;

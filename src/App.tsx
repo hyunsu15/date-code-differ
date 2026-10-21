@@ -33,7 +33,11 @@ import {
   envById,
   envColorClass,
   envPath,
+  linkEnvPair,
+  loadEnvLinked,
   loadEnvPair,
+  pickEnv,
+  saveEnvLinked,
   saveEnvPair,
   withEnv,
 } from './features/settings/envFolder.ts'
@@ -104,7 +108,12 @@ export default function App() {
    * 환경 폴더(운영/테스트) — **좌우가 각각 고른다.** 목록은 change/config.ts 에서 온다.
    * 환경마다 배포 시점이 달라 같은 날짜가 양쪽에 다 있으리라는 보장이 없다.
    */
-  const [envPair, setEnvPair] = useState(loadEnvPair)
+  /** 환경을 좌우 함께 바꿀지 — 켜져 있으면 한쪽에서 고른 환경이 양쪽에 들어간다 */
+  const [envLinked, setEnvLinked] = useState(loadEnvLinked)
+  // 묶인 채 저장된 좌우가 어긋나 있으면 열 때 맞춘다
+  const [envPair, setEnvPair] = useState(() =>
+    envLinked ? linkEnvPair(loadEnvPair()) : loadEnvPair()
+  )
 
   const base = sourceSelection.source
   const leftEnvPath = envPath(envPair.left)
@@ -527,13 +536,29 @@ export default function App() {
    * 한쪽 환경을 바꾸면 그쪽 루트가 바뀌고, 그 위치로 목록을 다시 읽는다
    * (위 useEffect 가 위치를 보고 있다).
    */
-  const changeEnv = useCallback((side: Side, id: string): void => {
+  const changeEnv = useCallback(
+    (side: Side, id: string): void => {
+      setEnvPair((prev) => {
+        const next = pickEnv(prev, side, id, envLinked)
+        saveEnvPair(next)
+        return next
+      })
+    },
+    [envLinked]
+  )
+
+  /** 묶기를 켜는 순간 오른쪽이 왼쪽 환경으로 맞춰진다 (`linkEnvPair`) */
+  const toggleEnvLink = useCallback((): void => {
+    const next = !envLinked
+    setEnvLinked(next)
+    saveEnvLinked(next)
+    if (!next) return
     setEnvPair((prev) => {
-      const next = side === 'left' ? { ...prev, left: id } : { ...prev, right: id }
-      saveEnvPair(next)
-      return next
+      const linked = linkEnvPair(prev)
+      saveEnvPair(linked)
+      return linked
     })
-  }, [])
+  }, [envLinked])
 
   const toggleSync = useCallback(() => setSyncScroll((v) => !v), [])
   const toggleScope = useCallback(
@@ -838,6 +863,8 @@ export default function App() {
           sameSource={sameSource}
           onChangeSnapshot={picker.onChange}
           onChangeEnv={changeEnv}
+          envLinked={envLinked}
+          onToggleEnvLink={toggleEnvLink}
           onRefresh={() => void loadSnapshots(leftSource, rightSource, true)}
           loading={picker.loading}
         />

@@ -128,6 +128,9 @@ interface SnapshotPickerProps {
   sameSource: boolean
   onChangeSnapshot: (side: Side, id: string) => void
   onChangeEnv: (side: Side, envId: string) => void
+  /** 환경을 좌우 함께 바꾸는 중인지 */
+  envLinked: boolean
+  onToggleEnvLink: () => void
   onRefresh: () => void
   /** 스냅샷 목록 자체를 다시 읽는 중 — 비교 중에는 입력을 막지 않는다 */
   loading: boolean
@@ -147,6 +150,8 @@ export default function SnapshotPicker({
   sameSource,
   onChangeSnapshot,
   onChangeEnv,
+  envLinked,
+  onToggleEnvLink,
   onRefresh,
   loading,
 }: SnapshotPickerProps) {
@@ -210,6 +215,28 @@ export default function SnapshotPicker({
         onCommit={(id) => onChangeSnapshot('right', id)}
         disabled={disabled}
       />
+
+      {/*
+        환경이 둘 이상일 때만 의미가 있다. 켜면 오른쪽이 왼쪽 환경으로 맞춰지고,
+        그 뒤로는 어느 쪽에서 골라도 양쪽이 같이 바뀐다 (운영 두 날짜 ↔ 테스트 두 날짜).
+        아이콘은 동기 스크롤 토글과 같은 🔗 — 이 화면에서 "좌우가 함께 움직인다" 는 뜻이다.
+      */}
+      {envChoices.length > 1 && (
+        <button
+          type="button"
+          className={`btn sm env-link${envLinked ? ' on' : ''}`}
+          onClick={onToggleEnvLink}
+          disabled={loading}
+          aria-pressed={envLinked}
+          title={
+            envLinked
+              ? '환경 묶음 켜짐 · 한쪽 환경을 바꾸면 양쪽이 같이 바뀝니다. 클릭하면 좌우를 따로 고릅니다'
+              : '켜면 양쪽 환경을 한 번에 바꿉니다 (오른쪽이 왼쪽 환경으로 맞춰집니다)'
+          }
+        >
+          🔗 환경 묶기
+        </button>
+      )}
 
       <button
         type="button"
