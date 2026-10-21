@@ -15,8 +15,11 @@ import {
   envColorClass,
   envPath,
   joinRoot,
+  linkEnvPair,
   parseEnvId,
+  parseEnvLinked,
   parseEnvPair,
+  pickEnv,
   withEnv,
 } from '../src/features/settings/envFolder.ts'
 import type { SourceConfig } from '../src/types.ts'
@@ -267,6 +270,46 @@ test('예전 저장값(환경 하나)은 양쪽 다 그 환경으로 읽는다',
   const id = ENV_FOLDERS[0].id
   // 화면이 예전과 똑같이 보이는 게 맞다 — 쓰던 사람이 놀라지 않게
   assert.deepEqual(parseEnvPair(id), { left: id, right: id })
+})
+
+/* ---------------- 좌우 함께 바꾸기 ---------------- */
+
+const CROSS = { left: 'prod', right: 'test' }
+
+test('묶지 않으면 고른 쪽만 바뀐다', () => {
+  assert.deepEqual(pickEnv(CROSS, 'left', 'test', false), { left: 'test', right: 'test' })
+  assert.deepEqual(pickEnv(CROSS, 'right', 'prod', false), { left: 'prod', right: 'prod' })
+  assert.deepEqual(pickEnv(CROSS, 'left', 'dev', false), { left: 'dev', right: 'test' })
+})
+
+test('묶으면 어느 쪽에서 골라도 양쪽이 함께 간다', () => {
+  const same = { left: 'prod', right: 'prod' }
+  assert.deepEqual(pickEnv(same, 'left', 'test', true), { left: 'test', right: 'test' })
+  assert.deepEqual(pickEnv(same, 'right', 'test', true), { left: 'test', right: 'test' })
+})
+
+test('바꾸기 전 좌우가 달라도 묶여 있으면 양쪽이 고른 값으로 모인다', () => {
+  assert.deepEqual(pickEnv(CROSS, 'right', 'test', true), { left: 'test', right: 'test' })
+})
+
+test('원래 선택을 고치지 않는다 — 새 쌍을 돌려준다', () => {
+  const before = { ...CROSS }
+  pickEnv(CROSS, 'left', 'test', true)
+  pickEnv(CROSS, 'left', 'test', false)
+  assert.deepEqual(CROSS, before)
+})
+
+test('묶기를 켜면 오른쪽이 왼쪽 환경에 맞춰진다', () => {
+  assert.deepEqual(linkEnvPair(CROSS), { left: 'prod', right: 'prod' })
+  assert.deepEqual(linkEnvPair({ left: 'test', right: 'test' }), { left: 'test', right: 'test' })
+})
+
+test('묶기는 명시적으로 켠 저장값만 켠다', () => {
+  assert.equal(parseEnvLinked('1'), true)
+  assert.equal(parseEnvLinked('0'), false)
+  assert.equal(parseEnvLinked(null), false, '저장된 게 없으면 꺼진 채 연다 — 기본은 운영 ↔ 테스트')
+  assert.equal(parseEnvLinked(''), false)
+  assert.equal(parseEnvLinked('true'), false, '모르는 값은 켜지 않는다')
 })
 
 test('고른 환경은 실제로 붙일 경로를 돌려준다', () => {

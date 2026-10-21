@@ -1,5 +1,5 @@
 import * as userConfig from '../../../change/config.ts'
-import type { EnvFolder, SourceConfig } from '../../types.ts'
+import type { EnvFolder, Side, SourceConfig } from '../../types.ts'
 
 /**
  * 환경 폴더 — 운영 / 테스트.
@@ -19,6 +19,7 @@ import type { EnvFolder, SourceConfig } from '../../types.ts'
  */
 
 const STORAGE_KEY = 'cd-env'
+const LINK_STORAGE_KEY = 'cd-env-linked'
 
 /**
  * 환경 설정은 나중에 생겼다 — 예전에 만들어 둔 `change/config.ts` 에는 없을 수 있다.
@@ -123,6 +124,42 @@ export function loadEnvPair(): EnvPair {
 export function saveEnvPair(pair: EnvPair): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(pair))
+  } catch {
+    // 저장 실패해도 이번 세션 동작에는 지장이 없다
+  }
+}
+
+/**
+ * 한쪽 환경을 바꾼 결과.
+ *
+ * **묶여 있으면 양쪽이 함께 간다.** 운영의 두 날짜를 보다가 테스트의 두 날짜로 넘어가는 일이
+ * 잦은데, 좌우가 따로면 매번 두 번 골라야 하고 그 사이 한 번은 엉뚱한 운영↔테스트 비교가 뜬다.
+ */
+export function pickEnv(pair: EnvPair, side: Side, id: string, linked: boolean): EnvPair {
+  if (linked) return { left: id, right: id }
+  return side === 'left' ? { ...pair, left: id } : { ...pair, right: id }
+}
+
+/**
+ * 묶기를 켤 때의 좌우 — 오른쪽을 왼쪽에 맞춘다.
+ * 묶인 채로 양쪽이 다르면 "묶였다" 는 표시와 화면이 어긋난다. 왼쪽이 기준이라 왼쪽을 따른다.
+ */
+export const linkEnvPair = (pair: EnvPair): EnvPair => pickEnv(pair, 'left', pair.left, true)
+
+/** 저장값을 묶기 여부로 바꾼다. 명시적으로 켠 적이 있을 때만 켠다 */
+export const parseEnvLinked = (raw: string | null): boolean => raw === '1'
+
+export function loadEnvLinked(): boolean {
+  try {
+    return parseEnvLinked(localStorage.getItem(LINK_STORAGE_KEY))
+  } catch {
+    return false
+  }
+}
+
+export function saveEnvLinked(linked: boolean): void {
+  try {
+    localStorage.setItem(LINK_STORAGE_KEY, linked ? '1' : '0')
   } catch {
     // 저장 실패해도 이번 세션 동작에는 지장이 없다
   }
