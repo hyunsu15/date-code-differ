@@ -60,6 +60,7 @@
         localStorage.setItem('cd-scope', 'changed')
         // 앞선 촬영이 남긴 값이 다음 장면으로 새면 엉뚱한 화면을 찍는다 — 매번 못 박는다
         localStorage.setItem('cd-mode', mode)
+        localStorage.removeItem('cd-env-linked')
         localStorage.removeItem('cd-my-exclude')
         localStorage.removeItem('cd-my-exclude-schema')
         localStorage.removeItem('cd-schema-kinds')
@@ -144,7 +145,8 @@
           mark(doc, picks[0].querySelector('input'), 2, 4)
           mark(doc, sels[1], 3, 4)
           mark(doc, picks[1].querySelector('input'), 4, 4)
-          mark(doc, byText(doc, 'button', '새로고침'), 5, 4)
+          mark(doc, '.snapshot-picker .env-link', 5, 4)
+          mark(doc, byText(doc, 'button', '새로고침'), 6, 4)
         },
 
         /* 4. 운영 ↔ 테스트 */
