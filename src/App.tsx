@@ -10,6 +10,8 @@ import DiffNav from './features/diff/DiffNav.tsx'
 import DiffViewer from './features/diff/DiffViewer.tsx'
 import FileList from './features/files/FileList.tsx'
 import PackageSummary from './features/packages/PackageSummary.tsx'
+import { buildReport, reportFileName, type ReportInput } from './features/report/report.ts'
+import { loadSchemaForReport } from './features/report/schemaForReport.ts'
 import SchemaPane from './features/schema/SchemaPane.tsx'
 import SnapshotPicker from './features/snapshots/SnapshotPicker.tsx'
 import Toasts from './features/toast/Toasts.tsx'
@@ -50,8 +52,10 @@ import {
 } from './features/settings/sourceSettings.ts'
 import SummaryCard from './features/summary/SummaryCard.tsx'
 import { aggregateStats, buildFileDiff } from './lib/diffEngine.ts'
+import { downloadText } from './lib/download.ts'
 import { num } from './lib/format.ts'
 import { searchRows } from './lib/search.ts'
+import { pushToast } from './lib/toast.ts'
 import type {
   CodeScope,
   ComparisonResponse,
@@ -738,6 +742,78 @@ export default function App() {
     () => includedFiles.filter((f) => f.status !== 'same').length,
     [includedFiles]
   )
+  /* ---------------- 보고서 내려받기 ---------------- */
+
+  /** 스키마를 읽는 동안 다시 누르지 못하게 한다 */
+  const [reporting, setReporting] = useState(false)
+
+  /**
+   * 지금 비교를 md 보고서로 내려받는다 (`features/report/report.ts`).
+   *
+   * 소스는 화면이 들고 있는 것(접은 파일을 뺀 `includedFiles`)을 그대로 쓰고,
+   * 스키마는 탭을 안 열었을 수 있어 그 자리에서 읽는다. 스키마를 못 읽어도 소스만으로
+   * 내려받는다 — 다만 **빠졌다고 알린다.** 모르고 공지에 붙이면 "스키마 변경 없음" 으로 읽힌다.
+   */
+  const downloadReport = useCallback(async (): Promise<void> => {
+    if (!comparison) return
+    setReporting(true)
+    const leftEnv = envById(envPair.left).label
+    const rightEnv = envById(envPair.right).label
+
+    const input: ReportInput = {
+      code: {
+        left: { env: leftEnv, date: comparison.left },
+        right: { env: rightEnv, date: comparison.right },
+        items: includedFiles,
+      },
+      schema: null,
+    }
+
+    // 스키마 요청이 실패해도 아래로 내려온다 — 버튼이 "만드는 중" 에 멈춰 있으면 안 된다
+    if (schemaConfigured) {
+      try {
+        const schema = await loadSchemaForReport({
+          source: base,
+          leftEnv: leftEnvPath,
+          rightEnv: rightEnvPath,
+          sameSource,
+          picked: schemaSelection,
+          codeLeft: comparison.left,
+          codeRight: comparison.right,
+          myExclude: mySchemaExclude,
+        })
+        if (schema) {
+          input.schema = {
+            left: { env: leftEnv, date: schema.left },
+            right: { env: rightEnv, date: schema.right },
+            items: schema.tables,
+          }
+        } else {
+          pushToast('warn', '스키마는 보고서에서 빠졌습니다', '고른 환경에 스키마 덤프가 없습니다.')
+        }
+      } catch (e) {
+        pushToast('warn', '스키마는 보고서에서 빠졌습니다', (e as Error).message)
+      }
+    }
+
+    try {
+      downloadText(reportFileName(input), buildReport(input))
+    } finally {
+      setReporting(false)
+    }
+  }, [
+    comparison,
+    includedFiles,
+    envPair,
+    schemaConfigured,
+    base,
+    leftEnvPath,
+    rightEnvPath,
+    sameSource,
+    schemaSelection,
+    mySchemaExclude,
+  ])
+
   /** 규칙 파일의 상태 — 읽기 실패를 알리는 데 쓴다 (접힌 수는 아래 `local` 이 합쳐 센다) */
   const exclude = comparison?.exclude ?? null
 
@@ -868,6 +944,21 @@ export default function App() {
           onRefresh={() => void loadSnapshots(leftSource, rightSource, true)}
           loading={picker.loading}
         />
+
+        {/* 소스·스키마 비교 결과를 공지용 md 로 받는다. 비교가 끝나기 전에는 낼 숫자가 없다 */}
+        <button
+          type="button"
+          className="btn sm"
+          onClick={() => void downloadReport()}
+          disabled={!comparison || comparing || reporting}
+          title={
+            comparison
+              ? '지금 비교 결과(소스·스키마)를 보고서 md 파일로 내려받습니다'
+              : '비교가 끝나면 내려받을 수 있습니다'
+          }
+        >
+          {reporting ? '⬇ 만드는 중…' : '⬇ 보고서'}
+        </button>
 
         <button
           type="button"
