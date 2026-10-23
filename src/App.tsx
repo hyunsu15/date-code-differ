@@ -58,6 +58,7 @@ import {
   loadSourceSelection,
   presetById,
   saveSourceSelection,
+  shortSource,
   type SourceSelection,
 } from './features/settings/sourceSettings.ts'
 import SummaryCard from './features/summary/SummaryCard.tsx'
@@ -1087,22 +1088,6 @@ export default function App() {
         <div className="brand">
           <span className="dot">◧</span>
           <span>환경 · 날짜별 소스 Diff</span>
-          <small
-            title={[
-              presetLabel,
-              root || describeSource(leftSource),
-              // 좌우가 다른 곳이면 헤더 한 줄에 다 넣을 수 없다 — 툴팁에는 둘 다 보여준다
-              sameSource ? null : rightLoaded.root || describeSource(rightSource),
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-          >
-            <span className={`src-tag ${leftSource.mode}`}>
-              {leftSource.mode === 'ssh' ? 'SSH' : '폴더'}
-            </span>
-            {presetLabel && <span className="preset-name">{presetLabel}</span>}
-            {root || describeSource(leftSource)}
-          </small>
         </div>
 
         <div className="header-spacer" />
@@ -1160,13 +1145,28 @@ export default function App() {
           }}
         />
 
+        {/*
+          지금 읽는 위치를 버튼이 직접 보여준다 — 경로를 헤더에 따로 적으면 길어서 버튼들이 둘째 줄로
+          밀리고, "어디서 위치를 바꾸나" 도 따로 찾아야 했다. 전체 경로는 툴팁에 있다.
+        */}
         <button
           type="button"
-          className="btn sm"
+          className="btn sm source-btn"
           onClick={() => setSettingsOpen(true)}
-          title="비교 대상 위치 설정 (로컬 폴더 / SSH 원격)"
+          title={[
+            presetLabel,
+            root || describeSource(leftSource),
+            // 좌우가 다른 곳이면 버튼 한 칸에 다 넣을 수 없다 — 툴팁에는 둘 다 보여준다
+            sameSource ? null : rightLoaded.root || describeSource(rightSource),
+            '누르면 위치·제외 규칙 설정을 엽니다',
+          ]
+            .filter(Boolean)
+            .join('\n')}
         >
-          ⚙ 위치
+          <span aria-hidden="true">⚙</span>
+          <span className={`src-tag ${base.mode}`}>{base.mode === 'ssh' ? 'SSH' : '폴더'}</span>
+          <span className="source-name">{presetLabel ?? '직접 입력'}</span>
+          <span className="source-path">{shortSource(base)}</span>
         </button>
 
         <button

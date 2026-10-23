@@ -6,6 +6,7 @@ import {
   missingFields,
   parseSourceSelection,
   presetById,
+  shortSource,
   SOURCE_PRESETS,
   sourceParams,
   comparisonParams,
@@ -217,6 +218,18 @@ test('위치를 한 줄로 요약한다', () => {
     'u@h:22 /r'
   )
   assert.equal(describeSource(DEFAULT_SSH_SOURCE), 'SSH (설정 필요)')
+})
+
+test('헤더용 짧은 이름 — 폴더는 마지막 폴더, SSH 는 호스트', () => {
+  const local = (root: string): SourceConfig => ({ mode: 'local', root, encoding: 'auto' })
+  assert.equal(shortSource(local('./sample-code')), 'sample-code')
+  assert.equal(shortSource(local('D:\\release\\prod\\')), 'prod')
+  assert.equal(shortSource(local('/home/build/release/')), 'release')
+  // 비었거나 "." 뿐이면 이름이 없다
+  assert.equal(shortSource(local('')), '폴더 미지정')
+  assert.equal(shortSource(local('./')), '폴더 미지정')
+  assert.equal(shortSource({ ...DEFAULT_SSH_SOURCE, host: ' dev-server ' }), 'dev-server')
+  assert.equal(shortSource(DEFAULT_SSH_SOURCE), '설정 필요')
 })
 
 test('비어 있는 필수 항목을 한글 이름으로 알려준다', () => {

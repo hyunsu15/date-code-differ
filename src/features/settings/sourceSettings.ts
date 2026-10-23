@@ -200,6 +200,16 @@ export function describeSource(config: SourceConfig): string {
   return `${user || '?'}@${host}${port ? `:${port}` : ''} ${root}`
 }
 
+/**
+ * 헤더 버튼에 들어갈 짧은 이름 — 폴더면 마지막 폴더 이름, SSH 면 호스트.
+ * 전체 경로는 길어서 헤더를 두 줄로 밀어낸다 (전체는 툴팁과 설정 창에 있다).
+ */
+export function shortSource(config: SourceConfig): string {
+  if (config.mode === 'ssh') return config.host.trim() || '설정 필요'
+  const parts = config.root.trim().split(/[\\/]+/).filter((p) => p !== '' && p !== '.')
+  return parts.at(-1) ?? '폴더 미지정'
+}
+
 /** 바로 쓸 수 있는 설정인지 — 아니면 무엇이 비었는지 알려준다 */
 export function missingFields(config: SourceConfig): string[] {
   if (config.mode !== 'ssh') return config.root.trim() ? [] : ['폴더 경로']
