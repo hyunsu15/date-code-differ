@@ -269,6 +269,54 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .optionbar .label { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
 .optionbar .divider { width: 1px; height: 18px; background: var(--border); }
 
+/* ---------- 보기 옵션 (무시 · 줄바꿈 · 글자) — 한 버튼 아래로 접는다 ---------- */
+
+.view-options { position: relative; }
+.view-options .vo-count {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.vo-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 45;
+  width: 340px;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+}
+.vo-title {
+  padding: 6px 6px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--faint);
+}
+.vo-title + .vo-item { margin-top: 0; }
+.vo-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.vo-item:hover { background: var(--surface-2); }
+.vo-item input { margin: 3px 0 0; accent-color: var(--accent); cursor: pointer; }
+.vo-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.vo-text b { font-size: 12.5px; font-weight: 600; }
+.vo-text small { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+.vo-font { padding: 6px; }
+.vo-font .group { display: flex; align-items: center; gap: 10px; }
+.vo-font .label { color: var(--faint); font-size: 11px; }
+
 /* ================================================================
    사이드바
    ================================================================ */

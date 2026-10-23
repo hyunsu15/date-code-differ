@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   fetchComparison,
   fetchFileContent,
@@ -38,7 +38,8 @@ import {
   saveMySchemaExclude,
 } from './features/schema/schemaExclude.ts'
 import { matchSchemaDate } from './features/schema/schemaView.ts'
-import FontSize, { readFontSize } from './features/settings/FontSize.tsx'
+import { readFontSize } from './features/settings/FontSize.tsx'
+import ViewOptions from './features/settings/ViewOptions.tsx'
 import { loadDiffOptions, saveDiffOptions } from './features/settings/diffOptions.ts'
 import {
   ENV_CHOICES,
@@ -1064,8 +1065,6 @@ export default function App() {
    * 날짜 칸의 선택은 늘 환경 이름을 보여주므로 거기서는 항상 환경 색을 쓴다.
    */
   const sideTagClass = (envId: string): string => (sameSource ? '' : envColorClass(envId))
-  const setOpt = (k: keyof DiffOptions) => (e: ChangeEvent<HTMLInputElement>) =>
-    setOptions((o) => ({ ...o, [k]: e.target.checked }))
 
   return (
     <div className="app">
@@ -1302,70 +1301,14 @@ export default function App() {
 
           <div className="divider" />
 
-          <div className="group">
-            <span className="label">무시</span>
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={options.ignoreWhitespace}
-                onChange={setOpt('ignoreWhitespace')}
-              />
-              공백
-            </label>
-            <label className="toggle">
-              <input type="checkbox" checked={options.ignoreCase} onChange={setOpt('ignoreCase')} />
-              대소문자
-            </label>
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={options.ignoreBlankLines}
-                onChange={setOpt('ignoreBlankLines')}
-              />
-              빈 줄
-            </label>
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={options.ignoreComments}
-                onChange={setOpt('ignoreComments')}
-              />
-              주석
-            </label>
-            <label
-              className="toggle"
-              title="작성자 : 홍길동 처럼 이름을 적어 둔 줄을 비교에서 뺍니다 (수정자 · 변경자 · @author 도 함께)"
-            >
-              <input
-                type="checkbox"
-                checked={options.ignoreAuthor}
-                onChange={setOpt('ignoreAuthor')}
-              />
-              작성자
-            </label>
-            <label
-              className="toggle"
-              title="#if 0 … #endif 처럼 조건이 거짓으로 못박혀 실행되지 않는 블록을 비교에서 뺍니다 (#ifdef 는 그대로 비교합니다)"
-            >
-              <input
-                type="checkbox"
-                checked={options.ignoreDeadCode}
-                onChange={setOpt('ignoreDeadCode')}
-              />
-              죽은 코드
-            </label>
-          </div>
-
-          <div className="divider" />
-
-          <label className="toggle">
-            <input type="checkbox" checked={wrap} onChange={(e) => setWrap(e.target.checked)} />
-            줄바꿈
-          </label>
-
-          <div className="divider" />
-
-          <FontSize value={codeFontSize} onChange={setCodeFontSize} />
+          <ViewOptions
+            options={options}
+            onChangeOptions={setOptions}
+            wrap={wrap}
+            onChangeWrap={setWrap}
+            fontSize={codeFontSize}
+            onChangeFontSize={setCodeFontSize}
+          />
 
           <div style={{ flex: 1 }} />
 
