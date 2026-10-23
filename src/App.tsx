@@ -625,18 +625,27 @@ export default function App() {
     [envLinked]
   )
 
-  /** 묶기를 켜는 순간 오른쪽이 왼쪽 환경으로 맞춰진다 (`linkEnvPair`) */
+  /**
+   * 묶기를 켜는 순간 오른쪽이 왼쪽 환경으로 맞춰진다 (`linkEnvPair`).
+   * 그러면 같은 환경 비교가 되어 날짜도 그 환경의 최근 변경으로 다시 골라진다 — 버튼 하나에
+   * 양쪽 칸이 다 바뀌므로 **무엇이 왜 바뀌었는지 알린다.**
+   */
   const toggleEnvLink = useCallback((): void => {
     const next = !envLinked
     setEnvLinked(next)
     saveEnvLinked(next)
     if (!next) return
-    setEnvPair((prev) => {
-      const linked = linkEnvPair(prev)
-      saveEnvPair(linked)
-      return linked
-    })
-  }, [envLinked])
+    const linked = linkEnvPair(envPair)
+    saveEnvPair(linked)
+    setEnvPair(linked)
+    if (linked.right === envPair.right) return
+    pushToast(
+      'info',
+      `오른쪽을 ${envById(linked.right).label} 환경으로 맞췄습니다`,
+      '양쪽이 같은 환경이 되어 날짜는 그 환경의 최근 변경(이전 → 이후)으로 다시 고릅니다.\n' +
+        '묶기를 끄면 좌우 환경을 따로 고를 수 있습니다.'
+    )
+  }, [envLinked, envPair])
 
   const toggleSync = useCallback(() => setSyncScroll((v) => !v), [])
   const toggleScope = useCallback(
@@ -1024,6 +1033,22 @@ export default function App() {
    */
   const busy = loadingSnapshots ? '날짜 목록을 읽는 중…' : comparing ? '비교하는 중…' : null
 
+  /**
+   * 스키마 탭이 소스와 다른 날짜를 보고 있으면 알린다.
+   * 고르는 칸은 하나인데 탭마다 목록이 달라(`schemaSelection` 주석), 탭만 옮겼는데 날짜가 바뀐 것처럼
+   * 보인다. 소스 날짜에 맞는 덤프가 없으면 가장 가까운 것을 쓴다 (`matchSchemaDate`).
+   */
+  const schemaDateNote =
+    mode === 'schema' &&
+    left &&
+    right &&
+    schemaSelection.left &&
+    schemaSelection.right &&
+    (schemaSelection.left !== left || schemaSelection.right !== right)
+      ? `소스 비교(${left} → ${right})와 날짜가 다릅니다. 스키마 덤프는 배포와 주기가 달라 ` +
+        `${schemaSelection.left} → ${schemaSelection.right} 덤프를 보고 있습니다.`
+      : null
+
   /** 프리셋을 고른 상태면 그 이름을 헤더에 함께 보여준다 */
   const presetLabel = presetById(sourceSelection.presetId)?.label ?? null
 
@@ -1200,6 +1225,8 @@ export default function App() {
           )}
         </div>
       )}
+
+      {schemaDateNote && <div className="banner info">ℹ {schemaDateNote}</div>}
 
       {/* 좌우 선택은 위에 그대로 두고 아래 3단만 갈린다 (`PaneMode` 주석 참고) */}
       <div className="mode-tabs" role="tablist">

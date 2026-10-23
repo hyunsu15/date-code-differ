@@ -1195,6 +1195,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 
 .banner.error { background: var(--del-bg); color: var(--del-fg); }
 .banner.warn { background: rgba(187, 128, 9, 0.14); color: var(--mod-fg); }
+.banner.info { background: var(--accent-bg); color: var(--text); }
 
 /* ================================================================
    패키지 변경 요약 밴드
@@ -1993,6 +1994,9 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .toast .title { display: block; font-size: 13px; color: var(--text); }
 
 /* 원인을 짚어 주는 문장이라 접지 않고 그대로 편다 */
+/* 안내(info)의 자세히는 원문 오류가 아니라 문장이다 — 고정폭 글꼴을 쓰지 않는다 */
+.toast.t-info .detail { font-family: var(--sans); }
+
 .toast .detail {
   margin-top: 4px;
   font-family: var(--mono);
