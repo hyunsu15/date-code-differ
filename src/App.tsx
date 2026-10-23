@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } f
 import {
   fetchComparison,
   fetchFileContent,
+  fetchSchemaChanges,
   fetchSchemaSnapshots,
+  fetchSnapshotChanges,
   fetchSnapshots,
 } from './api/client.ts'
 import CodeSearchBar from './features/diff/CodeSearchBar.tsx'
@@ -23,6 +25,7 @@ import SchemaPane from './features/schema/SchemaPane.tsx'
 import SnapshotPicker from './features/snapshots/SnapshotPicker.tsx'
 import Toasts from './features/toast/Toasts.tsx'
 import { EMPTY_SELECTION, normalizeSelection } from './features/snapshots/selection.ts'
+import { changeHistory } from './features/snapshots/dateList.ts'
 import SettingsPanel from './features/settings/SettingsPanel.tsx'
 import {
   applyLocalExclude,
@@ -72,6 +75,7 @@ import type {
   SearchResult,
   Side,
   Snapshot,
+  SnapshotChange,
   SourceConfig,
   Theme,
   ViewMode,
@@ -107,6 +111,12 @@ interface LoadedSnapshots {
 }
 
 const EMPTY_LOADED: LoadedSnapshots = { source: null, root: '', items: [] }
+
+/** 날짜별 변경 수를 아직 못 쓸 때 날짜 목록 위에 적을 말. 쓸 수 있으면 null */
+function changeNoteOf(state: { left: unknown; error: string | null }): string | null {
+  if (state.error) return `날짜별 변경 수를 세지 못해 전체 날짜를 보여줍니다 — ${state.error}`
+  return state.left ? null : '날짜별 변경 수를 세는 중… 끝날 때까지 전체 날짜를 보여줍니다'
+}
 
 const readStored = (key: string, fallback: string): string =>
   localStorage.getItem(key) ?? fallback
@@ -338,6 +348,41 @@ export default function App() {
   useEffect(() => {
     void loadSnapshots(leftSource, rightSource, false)
   }, [loadSnapshots, leftSource, rightSource])
+
+  /**
+   * 날짜마다 바로 앞 날짜 대비 변경 수 — 날짜 고르기 목록의 "변경 N개" · "변경된 날짜만"
+   * (`server/snapshotChanges.ts`).
+   *
+   * **목록이 들어온 뒤 따로** 묻는다. 로컬은 본문을 읽어 견줘야 해서 느릴 수 있는데, 그걸 기다리느라
+   * 날짜 칸이 늦게 뜨면 안 된다. 세는 동안은 거르지 않고 전체를 보여준다.
+   * 목록 객체가 바뀔 때마다(새로고침 포함) 다시 센다 — 서버도 새로고침 때 캐시를 비운다.
+   */
+  const [dateChanges, setDateChanges] = useState<{
+    left: ReadonlyMap<string, SnapshotChange> | null
+    right: ReadonlyMap<string, SnapshotChange> | null
+    error: string | null
+  }>({ left: null, right: null, error: null })
+
+  useEffect(() => {
+    const l = leftLoaded.source
+    const r = rightLoaded.source
+    setDateChanges({ left: null, right: null, error: null })
+    if (!l || !r || leftLoaded.items.length === 0) return
+
+    let alive = true
+    const toMap = (items: SnapshotChange[]) => new Map(items.map((c) => [c.id, c]))
+    const same = l === r
+    void Promise.all([fetchSnapshotChanges(l), same ? null : fetchSnapshotChanges(r)])
+      .then(([a, b]) => {
+        if (!alive) return
+        const left = toMap(a.items)
+        setDateChanges({ left, right: b ? toMap(b.items) : left, error: null })
+      })
+      .catch((e: Error) => alive && setDateChanges({ left: null, right: null, error: e.message }))
+    return () => {
+      alive = false
+    }
+  }, [leftLoaded, rightLoaded])
 
   /* ================================================================
      좌우 비교 — 목록/통계는 서버가 만들어 준다 (본문은 안 받는다)
@@ -611,6 +656,30 @@ export default function App() {
   }, [mode, schemaConfigured, base, leftEnvPath, rightEnvPath])
 
   /**
+   * 스키마 덤프 날짜마다 바로 앞 덤프 대비 **테이블** 변경 수 — 스키마 탭 날짜 목록의 "테이블 N개 바뀜".
+   * 코드 쪽(`dateChanges`)과 같은 이유로 날짜 목록이 들어온 뒤 따로 묻는다.
+   */
+  const [schemaDateChanges, setSchemaDateChanges] = useState<{
+    left: ReadonlyMap<string, SnapshotChange> | null
+    right: ReadonlyMap<string, SnapshotChange> | null
+    error: string | null
+  }>({ left: null, right: null, error: null })
+
+  useEffect(() => {
+    setSchemaDateChanges({ left: null, right: null, error: null })
+    if (mode !== 'schema' || !schemaConfigured || schemaLoaded.left.length === 0) return
+
+    let alive = true
+    const toMap = (items: SnapshotChange[]) => new Map(items.map((c) => [c.id, c]))
+    fetchSchemaChanges(base, leftEnvPath, rightEnvPath)
+      .then((res) => alive && setSchemaDateChanges({ left: toMap(res.left), right: toMap(res.right), error: null }))
+      .catch((e: Error) => alive && setSchemaDateChanges({ left: null, right: null, error: e.message }))
+    return () => {
+      alive = false
+    }
+  }, [mode, schemaConfigured, schemaLoaded, base, leftEnvPath, rightEnvPath])
+
+  /**
    * 목록이 들어오면 규칙에 맞게 바로잡는다.
    * 아직 아무것도 안 고른 상태면 **코드에서 고른 날짜에 맞춘다** — 8월 배포를 보다가
    * 탭을 눌렀는데 9월 스키마가 뜨면 무엇을 보고 있는지 어긋난다.
@@ -645,8 +714,18 @@ export default function App() {
     [schemaLoaded, sameSource]
   )
 
+  /**
+   * 사람이 날짜를 직접 골랐는지 — 고른 뒤에는 아래 "최근 변경으로 맞추기" 가 끼어들지 않는다.
+   * 위치(환경·프리셋)가 바뀌어 목록을 새로 읽으면 다시 처음 상태가 된다.
+   */
+  const datesTouched = useRef(false)
+  useEffect(() => {
+    datesTouched.current = false
+  }, [leftSource, rightSource])
+
   const changeSide = useCallback(
     (side: Side, id: string) => {
+      datesTouched.current = true
       setSelection((prev) =>
         normalizeSelection(
           side === 'left' ? { ...prev, left: id } : { ...prev, right: id },
@@ -659,6 +738,38 @@ export default function App() {
     [leftLoaded.items, rightLoaded.items, sameSource]
   )
 
+  /** 변경 이력 한 줄 · 빠른 선택 — 이전·이후를 **한 번에** 정한다 (따로 두 번 바꾸면 중간에 엉뚱한 비교가 뜬다) */
+  const changePair = useCallback(
+    (left: string, right: string) => {
+      datesTouched.current = true
+      setSelection(normalizeSelection({ left, right }, leftLoaded.items, rightLoaded.items, sameSource))
+    },
+    [leftLoaded.items, rightLoaded.items, sameSource]
+  )
+
+  const changeSchemaPair = useCallback(
+    (left: string, right: string) => {
+      setSchemaSelection(normalizeSelection({ left, right }, schemaLoaded.left, schemaLoaded.right, sameSource))
+    },
+    [schemaLoaded, sameSource]
+  )
+
+  /**
+   * 처음 열 때 같은 환경이면 **가장 최근 변경**을 보여준다.
+   *
+   * 기본 선택은 "최신 날짜 · 그 바로 앞 날짜" 인데, 그 사이에 배포가 없었으면 두 폴더가 똑같아 빈 비교가
+   * 뜬다(날짜가 매일 쌓이는 배치에서 흔하다). 변경 수가 들어오면 이전을 최근 변경의 앞 배포일로 옮긴다.
+   * 사람이 이미 날짜를 골랐으면 손대지 않는다.
+   */
+  useEffect(() => {
+    if (!sameSource || datesTouched.current || !dateChanges.left) return
+    const items = leftLoaded.items
+    const latest = changeHistory(items, dateChanges.left).sets[0]
+    const newest = items.find((s) => s.sortKey)?.id
+    if (!latest || !newest) return
+    setSelection(normalizeSelection({ left: latest.from, right: newest }, items, items, true))
+  }, [dateChanges.left, leftLoaded.items, sameSource])
+
   /**
    * 헤더 컨트롤이 다룰 목록·선택.
    * 모드만 보고 갈아 끼우므로, 컨트롤 자체는 무엇을 고르는지 몰라도 된다.
@@ -670,6 +781,7 @@ export default function App() {
           right: schemaLoaded.right,
           selection: schemaSelection,
           onChange: changeSchemaSide,
+          onPair: changeSchemaPair,
           loading: loadingSchema,
         }
       : {
@@ -677,6 +789,7 @@ export default function App() {
           right: rightLoaded.items,
           selection,
           onChange: changeSide,
+          onPair: changePair,
           loading: loadingSnapshots,
         }
 
@@ -980,21 +1093,27 @@ export default function App() {
             snapshots: picker.left,
             value: picker.selection.left,
             tagClass: envColorClass(envPair.left),
+            changes: (mode === 'schema' ? schemaDateChanges : dateChanges).left,
           }}
           right={{
             envId: envPair.right,
             snapshots: picker.right,
             value: picker.selection.right,
             tagClass: envColorClass(envPair.right),
+            changes: (mode === 'schema' ? schemaDateChanges : dateChanges).right,
           }}
           envChoices={ENV_CHOICES}
           sameSource={sameSource}
           onChangeSnapshot={picker.onChange}
+          onChangePair={picker.onPair}
           onChangeEnv={changeEnv}
           envLinked={envLinked}
           onToggleEnvLink={toggleEnvLink}
           onRefresh={() => void loadSnapshots(leftSource, rightSource, true)}
           loading={picker.loading}
+          // 코드는 파일, 스키마는 테이블 단위로 센다
+          unit={mode === 'schema' ? '테이블' : '파일'}
+          changeNote={changeNoteOf(mode === 'schema' ? schemaDateChanges : dateChanges)}
         />
 
         {/*
