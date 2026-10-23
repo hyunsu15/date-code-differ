@@ -85,36 +85,68 @@ const args = (over: Partial<Parameters<typeof loadSchemaForReport>[0]> = {}) => 
   leftEnv: 'prod',
   rightEnv: 'test',
   sameSource: false,
-  picked: { left: '', right: '' },
   codeLeft: '2026-09-01',
   codeRight: '2026-09-01',
   myExclude: '',
   ...over,
 })
 
-test('스키마 탭을 안 열었으면 코드 날짜에 맞춘다 — 그 시점에 걸려 있던 덤프', async () => {
-  server.list = { left: refs('2026-09-01', '2026-08-01'), right: refs('2026-08-20', '2026-07-01') }
+test('소스 날짜에 가장 가까운 덤프로 맞춘다 — 앞이든 뒤든', async () => {
+  server.list = { left: refs('2026-09-03', '2026-08-01'), right: refs('2026-08-20', '2026-07-01') }
   const res = await loadSchemaForReport(args())
-  assert.deepEqual(asked, { left: '2026-09-01', right: '2026-08-20' })
-  assert.equal(res?.right, '2026-08-20')
+  // 왼쪽: 9/1 에서 이틀 뒤가 한 달 전보다 가깝다. 오른쪽: 12일 전이 두 달 전보다 가깝다
+  assert.deepEqual(asked, { left: '2026-09-03', right: '2026-08-20' })
+  assert.deepEqual([res?.left, res?.right], ['2026-09-03', '2026-08-20'])
 })
 
-test('스키마 탭에서 고른 날짜가 있으면 그것을 쓴다', async () => {
+test('같은 환경에서 두 날짜가 같은 덤프로 맞춰지면 견주지 않고 sameDump 로 알린다', async () => {
+  // 소스 6/1 → 7/1 인데 덤프가 8/1 · 9/1 뿐이다. 예전에는 오른쪽을 9/1 로 밀어
+  // 7월 소스 비교에 9월 스키마 변경이 실렸다
   server.list = { left: refs('2026-09-01', '2026-08-01'), right: refs('2026-09-01', '2026-08-01') }
-  await loadSchemaForReport(args({ picked: { left: '2026-08-01', right: '2026-08-01' } }))
-  assert.deepEqual(asked, { left: '2026-08-01', right: '2026-08-01' })
+  const res = await loadSchemaForReport(
+    args({ rightEnv: 'prod', sameSource: true, codeLeft: '2026-06-01', codeRight: '2026-07-01' })
+  )
+  assert.deepEqual(res, { left: '2026-08-01', right: '2026-08-01', tables: [], sameDump: true })
+  assert.deepEqual(asked, { left: null, right: null }, '같은 파일끼리 대조를 묻지 않는다')
 })
 
-test('고른 날짜가 새 환경 목록에 없으면 바로잡는다 — 탭을 본 뒤 환경을 바꾼 경우', async () => {
-  server.list = { left: refs('2026-09-01'), right: refs('2026-09-01') }
-  await loadSchemaForReport(args({ picked: { left: '2026-05-01', right: '2026-05-01' } }))
-  assert.deepEqual(asked, { left: '2026-09-01', right: '2026-09-01' })
-})
-
-test('같은 환경이면 오른쪽이 왼쪽보다 최신이 되게 맞춘다', async () => {
+test('같은 환경에서 서로 다른 덤프로 맞춰지면 그대로 견준다 — 순서를 억지로 바꾸지 않는다', async () => {
   server.list = { left: refs('2026-09-01', '2026-08-01'), right: refs('2026-09-01', '2026-08-01') }
-  await loadSchemaForReport(args({ rightEnv: 'prod', sameSource: true }))
+  const res = await loadSchemaForReport(
+    args({ rightEnv: 'prod', sameSource: true, codeLeft: '2026-08-01', codeRight: '2026-09-01' })
+  )
   assert.deepEqual(asked, { left: '2026-08-01', right: '2026-09-01' })
+  assert.equal(res?.sameDump, false)
+})
+
+test('pinned 면 맞추지 않고 그 덤프 그대로 — 스키마 탭에서 보고 있는 것을 받을 때', async () => {
+  // 목록을 묻지도 않는다: 화면이 이미 고른 날짜다
+  let listed = false
+  const real = globalThis.fetch
+  globalThis.fetch = (async (input: URL | string) => {
+    if (String(input).includes('/schemas/snapshots')) listed = true
+    return real(input)
+  }) as typeof fetch
+  server.list = { left: refs('2026-09-01', '2026-08-01'), right: refs('2026-09-01', '2026-08-01') }
+  const res = await loadSchemaForReport(
+    args({
+      rightEnv: 'prod',
+      sameSource: true,
+      codeLeft: '2026-06-01',
+      codeRight: '2026-07-01',
+      pinned: { left: '2026-08-01', right: '2026-09-01' },
+    })
+  )
+  assert.equal(listed, false)
+  assert.deepEqual(asked, { left: '2026-08-01', right: '2026-09-01' })
+  assert.equal(res?.sameDump, false, '소스 날짜(6/1 → 7/1)로는 같은 덤프였겠지만 pinned 가 우선이다')
+})
+
+test('환경이 다르면 같은 날짜의 덤프여도 견준다 — 다른 파일이다', async () => {
+  server.list = { left: refs('2026-09-01'), right: refs('2026-09-01') }
+  const res = await loadSchemaForReport(args())
+  assert.deepEqual(asked, { left: '2026-09-01', right: '2026-09-01' })
+  assert.equal(res?.sameDump, false)
 })
 
 test('그 환경에 덤프가 없으면 null — 대조를 묻지 않는다', async () => {

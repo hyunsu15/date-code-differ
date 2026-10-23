@@ -1,4 +1,5 @@
-import { SCHEMA_KINDS, SCHEMA_KIND_LABEL, type ComparedFile, type FileStatus, type TableDiff } from '../../types.ts'
+import { changeLegend, schemaChangeRows, sideNames } from '../schema/schemaWording.ts'
+import { STATUS_LABEL, type ComparedFile, type FileStatus, type TableDiff } from '../../types.ts'
 
 /**
  * 비교 결과를 사내 공지에 붙일 md 보고서로 만든다.
@@ -25,21 +26,26 @@ export interface ReportPart<T> {
   items: T[]
 }
 
+/**
+ * 스키마 쪽. 덤프는 소스와 주기가 달라 날짜가 어긋날 수 있다 —
+ * 어긋났으면 보고서에 **어느 날짜 대신 어느 덤프를 썼는지** 적는다. 안 적으면 받는 사람이
+ * 소스와 스키마가 같은 시점이라고 읽는다.
+ */
+export interface SchemaReportPart extends ReportPart<TableDiff> {
+  /** 맞춰 달라고 한 날짜 (= 보고서의 소스 날짜) */
+  wanted: { left: string; right: string }
+  /** 두 날짜가 같은 덤프로 맞춰져 견주지 않았다 — 0건이 아니라 "비교 못 함" 이다 */
+  sameDump: boolean
+}
+
 export interface ReportInput {
   /** 제외 목록에 걸린 것을 뺀 파일들 (동일 포함) */
   code: ReportPart<ComparedFile> | null
   /** 제외 목록에 걸린 것을 뺀 테이블들 (동일 포함). 스키마를 안 쓰면 null */
-  schema: ReportPart<TableDiff> | null
+  schema: SchemaReportPart | null
 }
 
-const STATUS_LABEL: Record<FileStatus, string> = {
-  added: '신규',
-  removed: '삭제',
-  modified: '수정',
-  same: '동일',
-}
-
-/** 목록 순서 — 생기고 없어진 것이 수정보다 눈에 먼저 들어와야 한다 */
+/** 목록 순서 — 생기고 없어진 것이 바뀐 것보다 눈에 먼저 들어와야 한다 */
 const STATUS_ORDER: Record<FileStatus, number> = { added: 0, removed: 1, modified: 2, same: 3 }
 
 const num = (n: number): string => n.toLocaleString('ko-KR')
@@ -61,13 +67,13 @@ const byStatusThenName = <T extends { status: FileStatus }>(name: (item: T) => s
     STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || name(a).localeCompare(name(b))
 
 /**
- * 파일 하나가 얼마나 바뀌었나.
- * 생기거나 없어진 파일은 줄 수 전체, 수정은 추가·삭제·수정 줄 중 0 이 아닌 것만 적는다.
+ * 파일 하나가 얼마나 바뀌었나 — 추가·삭제·변경 줄 중 0 이 아닌 것만 적는다.
+ *
+ * **화면 파일 목록과 같은 숫자**를 쓴다(비교한 줄 기준 — 무시 옵션으로 뺀 빈 줄·주석은 세지 않는다).
+ * 예전에는 통째로 생기거나 없어진 파일만 파일 전체 줄 수를 적어, 화면은 11줄인데 보고서는 14줄이었다.
  */
 function fileChange(file: ComparedFile): string {
   const s = file.stats
-  if (file.status === 'added') return `+${num(s.bLines)}줄`
-  if (file.status === 'removed') return `−${num(s.aLines)}줄`
   const parts = [
     s.added > 0 ? `+${num(s.added)}` : '',
     s.removed > 0 ? `−${num(s.removed)}` : '',
@@ -76,21 +82,49 @@ function fileChange(file: ComparedFile): string {
   return parts.length > 0 ? `${parts.join(' ')}줄` : '—'
 }
 
-/** 테이블 하나가 얼마나 바뀌었나 — 종류별 바뀐 줄 수, 기본키가 움직였으면 따로 적는다 */
-function tableChange(table: TableDiff): string {
-  const parts = SCHEMA_KINDS.map((kind) => {
-    const s = table.sections[kind]
-    const count = s.added + s.removed + s.modified
-    return count > 0 ? `${SCHEMA_KIND_LABEL[kind]} ${num(count)}` : ''
-  }).filter(Boolean)
-  if (table.primaryKeyChanged) parts.push('⚠ 기본키 변경')
-  return parts.length > 0 ? parts.join(' · ') : '—'
+/**
+ * 스키마 날짜가 소스 날짜와 어긋났을 때 표 아래에 붙일 설명. 안 어긋났으면 빈 문자열.
+ *
+ * 같은 덤프로 맞춰졌으면 그것만 말한다 — "가장 가까운 것을 썼다" 보다
+ * "그 사이에 덤프가 없어 견주지 못했다" 가 받는 사람이 알아야 할 사실이다.
+ */
+function schemaDateNote(s: SchemaReportPart): string {
+  if (s.sameDump) {
+    return `※ 스키마는 두 날짜 사이에 덤프가 없어 비교하지 않았습니다 (가장 가까운 덤프가 둘 다 ${s.left.date}).`
+  }
+  const swaps = [
+    [s.wanted.left, s.left.date],
+    [s.wanted.right, s.right.date],
+  ]
+    .filter(([wanted, used]) => wanted !== used)
+    .map(([wanted, used]) => `${wanted} 대신 ${used}`)
+  const unique = [...new Set(swaps)]
+  if (unique.length === 0) return ''
+  return `※ 스키마는 같은 날짜의 덤프가 없어 가장 가까운 덤프로 비교했습니다 (${unique.join(', ')}).`
 }
+
+/**
+ * 무엇을 담은 보고서인가 — 제목과 파일 이름이 같은 말을 쓴다.
+ * 화면의 보고서 메뉴(소스 · 스키마 · 통합)와도 같은 이름이다.
+ */
+export type ReportKind = 'code' | 'schema' | 'all'
+
+export const reportKindOf = (input: ReportInput): ReportKind =>
+  input.code && input.schema ? 'all' : input.schema ? 'schema' : 'code'
+
+const TITLE: Record<ReportKind, string> = {
+  code: '소스 비교 보고서',
+  schema: '스키마 비교 보고서',
+  all: '소스·스키마 비교 보고서',
+}
+
+const FILE_KIND: Record<ReportKind, string> = { code: '소스', schema: '스키마', all: '통합' }
 
 function title(input: ReportInput): string {
   const part = input.code ?? input.schema
   const env = part ? pair(part.left.env, part.right.env).replace(' → ', ' ↔ ') : ''
-  return env ? `# 소스 비교 보고서 (${env})` : '# 소스 비교 보고서'
+  const name = TITLE[reportKindOf(input)]
+  return env ? `# ${name} (${env})` : `# ${name}`
 }
 
 export function buildReport(input: ReportInput): string {
@@ -103,24 +137,33 @@ export function buildReport(input: ReportInput): string {
   }
   if (input.schema) {
     const s = input.schema
-    lines.push(`| ${envText(s)} | 스키마 | ${num(changed(s.items).length)}건 | ${dateText(s)} |`)
+    const count = s.sameDump ? '—' : `${num(changed(s.items).length)}건`
+    lines.push(`| ${envText(s)} | 스키마 | ${count} | ${dateText(s)} |`)
+    const note = schemaDateNote(s)
+    if (note) lines.push('', note)
   }
 
   // 바뀐 것이 없는 종류는 절을 두지 않는다 — 위 표의 "0건" 이 이미 답이다
   const files = input.code ? changed(input.code.items) : []
   if (files.length > 0) {
-    lines.push('', '## 소스 변경 내역', '', '| 상태 | 파일 | 변경 |', '| ---- | ---- | ---- |')
+    // 상태는 맨 끝 칸 — 파일 이름이 먼저 눈에 들어오고, 스키마 표와 칸 순서가 같다
+    lines.push('', '## 소스 변경 내역', '', '| 파일 | 줄 수 | 상태 |', '| ---- | ---- | ---- |')
     for (const file of [...files].sort(byStatusThenName((f: ComparedFile) => f.path))) {
-      lines.push(`| ${STATUS_LABEL[file.status]} | ${cell(file.path)} | ${fileChange(file)} |`)
+      lines.push(`| ${cell(file.path)} | ${fileChange(file)} | ${STATUS_LABEL[file.status]} |`)
     }
   }
 
-  const tables = input.schema ? changed(input.schema.items) : []
-  if (tables.length > 0) {
-    lines.push('', '## 스키마 변경 내역', '', '| 상태 | 테이블 | 변경 |', '| ---- | ------ | ---- |')
-    for (const table of [...tables].sort(byStatusThenName((t: TableDiff) => t.name))) {
-      lines.push(`| ${STATUS_LABEL[table.status]} | ${cell(table.name)} | ${tableChange(table)} |`)
-    }
+  // 테이블 상태(수정)만 적으면 그 안에서 무엇이 생기고 없어지고 바뀌었는지 알 수 없다 —
+  // 바뀐 항목마다 한 줄씩 문장으로 적는다 (`features/schema/schemaWording.ts`)
+  const schemaRows = input.schema ? schemaChangeRows(input.schema.items) : []
+  if (input.schema && schemaRows.length > 0) {
+    // 말의 뜻을 실제 이름으로 못 박는다 — "추가" 가 누구 기준인지 받는 사람이 되묻지 않게
+    const legend = changeLegend(sideNames(input.schema.left, input.schema.right))
+      .map((l) => `${l.word}: ${l.meaning}`)
+      .join(' · ')
+    lines.push('', '## 스키마 변경 내역', '', `> ${legend}`, '')
+    lines.push('| 테이블 | 구분 | 이름 | 내용 | 상태 |', '| ------ | ---- | ---- | ---- | ---- |')
+    for (const row of schemaRows) lines.push(`| ${row.map(cell).join(' | ')} |`)
   }
 
   return `${lines.join('\n')}\n`
@@ -130,12 +173,13 @@ export function buildReport(input: ReportInput): string {
 const unsafe = (text: string): string => text.replace(/[\\/:*?"<>|\s]+/g, '_')
 
 /**
- * 내려받을 파일 이름 — `비교보고서_운영-2026-09-01_테스트-2026-09-01.md`.
- * 받은 파일이 여러 개 쌓여도 이름만 보고 무엇을 견준 것인지 알 수 있게 한다.
+ * 내려받을 파일 이름 — `비교보고서_스키마_운영-2026-09-01_테스트-2026-09-01.md`.
+ * 받은 파일이 여러 개 쌓여도 이름만 보고 무엇을(소스·스키마·통합) 어디끼리 견준 것인지 알 수 있게 한다.
+ * 종류를 날짜 앞에 둬서 폴더에서 이름순으로 놓으면 종류끼리 모인다.
  */
 export function reportFileName(input: ReportInput): string {
   const part = input.code ?? input.schema
   if (!part) return '비교보고서.md'
   const side = (s: ReportSide): string => unsafe([s.env, s.date].filter(Boolean).join('-'))
-  return `비교보고서_${side(part.left)}_${side(part.right)}.md`
+  return `비교보고서_${FILE_KIND[reportKindOf(input)]}_${side(part.left)}_${side(part.right)}.md`
 }

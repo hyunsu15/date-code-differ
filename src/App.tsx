@@ -10,7 +10,14 @@ import DiffNav from './features/diff/DiffNav.tsx'
 import DiffViewer from './features/diff/DiffViewer.tsx'
 import FileList from './features/files/FileList.tsx'
 import PackageSummary from './features/packages/PackageSummary.tsx'
-import { buildReport, reportFileName, type ReportInput } from './features/report/report.ts'
+import ReportButton, { type ReportOption } from './features/report/ReportButton.tsx'
+import { loadReportKind, primaryKind, saveReportKind } from './features/report/reportPreference.ts'
+import {
+  buildReport,
+  reportFileName,
+  type ReportInput,
+  type ReportKind,
+} from './features/report/report.ts'
 import { loadSchemaForReport } from './features/report/schemaForReport.ts'
 import SchemaPane from './features/schema/SchemaPane.tsx'
 import SnapshotPicker from './features/snapshots/SnapshotPicker.tsx'
@@ -746,73 +753,118 @@ export default function App() {
 
   /** 스키마를 읽는 동안 다시 누르지 못하게 한다 */
   const [reporting, setReporting] = useState(false)
+  /** 본 버튼이 받을 보고서 — 마지막으로 고른 것, 처음은 통합 (`reportPreference.ts`) */
+  const [reportKind, setReportKind] = useState(loadReportKind)
 
   /**
-   * 지금 비교를 md 보고서로 내려받는다 (`features/report/report.ts`).
+   * 스키마 탭에서 받는 **스키마 보고서**는 화면 그대로 — 지금 보고 있는 덤프 날짜를 쓴다.
+   * 그 밖(코드 탭에서 고른 스키마 보고서 · 통합)은 소스 날짜에 가장 가까운 덤프로 맞춘다.
+   */
+  const pinnedSchema =
+    mode === 'schema' && schemaSelection.left && schemaSelection.right ? schemaSelection : undefined
+
+  /**
+   * 보고서 종류마다 지금 받을 수 있는지, 못 받으면 왜인지 (`ReportButton` 이 메뉴에 그대로 적는다).
+   */
+  const reportOptions = useMemo((): Record<ReportKind, ReportOption> => {
+    const codeReady = Boolean(comparison) && !comparing
+    const codeWait = comparing ? '소스를 비교하는 중입니다' : '소스 비교가 끝나면 받을 수 있습니다'
+    const noSchema = '스키마 위치가 설정돼 있지 않습니다 (⚙ 위치 → 스키마 폴더)'
+    return {
+      code: { ok: codeReady, reason: codeWait, hint: '고른 날짜의 파일 변경 목록' },
+      schema: {
+        ok: schemaConfigured && (Boolean(pinnedSchema) || codeReady),
+        reason: schemaConfigured ? codeWait : noSchema,
+        hint: pinnedSchema
+          ? '지금 보고 있는 스키마 날짜 그대로'
+          : '소스 날짜에 가장 가까운 스키마 덤프로',
+      },
+      all: {
+        ok: schemaConfigured && codeReady,
+        reason: schemaConfigured ? codeWait : noSchema,
+        hint: '소스 + 스키마를 한 문서로 (스키마는 소스 날짜에 맞춤)',
+      },
+    }
+  }, [comparison, comparing, schemaConfigured, pinnedSchema])
+
+  /**
+   * 보고서를 md 로 내려받는다 (`features/report/report.ts`) — 통합 · 소스 · 스키마.
    *
    * 소스는 화면이 들고 있는 것(접은 파일을 뺀 `includedFiles`)을 그대로 쓰고,
-   * 스키마는 탭을 안 열었을 수 있어 그 자리에서 읽는다. 스키마를 못 읽어도 소스만으로
-   * 내려받는다 — 다만 **빠졌다고 알린다.** 모르고 공지에 붙이면 "스키마 변경 없음" 으로 읽힌다.
+   * 스키마는 탭을 안 열었을 수 있어 그 자리에서 읽는다 (`loadSchemaForReport`).
+   *
+   * 통합 보고서에서 스키마를 못 읽으면 소스만 담아 받되 **빠졌다고 알린다** — 모르고 공지에
+   * 붙이면 "스키마 변경 없음" 으로 읽힌다. 스키마 보고서에서 못 읽으면 낼 것이 없어 받지 않는다.
    */
-  const downloadReport = useCallback(async (): Promise<void> => {
-    if (!comparison) return
-    setReporting(true)
-    const leftEnv = envById(envPair.left).label
-    const rightEnv = envById(envPair.right).label
+  const downloadReport = useCallback(
+    async (kind: ReportKind): Promise<void> => {
+      if (!reportOptions[kind].ok) return
+      setReporting(true)
+      const leftEnv = envById(envPair.left).label
+      const rightEnv = envById(envPair.right).label
+      const input: ReportInput = { code: null, schema: null }
 
-    const input: ReportInput = {
-      code: {
-        left: { env: leftEnv, date: comparison.left },
-        right: { env: rightEnv, date: comparison.right },
-        items: includedFiles,
-      },
-      schema: null,
-    }
-
-    // 스키마 요청이 실패해도 아래로 내려온다 — 버튼이 "만드는 중" 에 멈춰 있으면 안 된다
-    if (schemaConfigured) {
       try {
-        const schema = await loadSchemaForReport({
-          source: base,
-          leftEnv: leftEnvPath,
-          rightEnv: rightEnvPath,
-          sameSource,
-          picked: schemaSelection,
-          codeLeft: comparison.left,
-          codeRight: comparison.right,
-          myExclude: mySchemaExclude,
-        })
-        if (schema) {
-          input.schema = {
-            left: { env: leftEnv, date: schema.left },
-            right: { env: rightEnv, date: schema.right },
-            items: schema.tables,
+        if (kind !== 'schema' && comparison) {
+          input.code = {
+            left: { env: leftEnv, date: comparison.left },
+            right: { env: rightEnv, date: comparison.right },
+            items: includedFiles,
           }
-        } else {
-          pushToast('warn', '스키마는 보고서에서 빠졌습니다', '고른 환경에 스키마 덤프가 없습니다.')
         }
-      } catch (e) {
-        pushToast('warn', '스키마는 보고서에서 빠졌습니다', (e as Error).message)
-      }
-    }
 
-    try {
-      downloadText(reportFileName(input), buildReport(input))
-    } finally {
-      setReporting(false)
-    }
-  }, [
-    comparison,
-    includedFiles,
-    envPair,
-    schemaConfigured,
-    base,
-    leftEnvPath,
-    rightEnvPath,
-    sameSource,
-    schemaSelection,
-    mySchemaExclude,
-  ])
+        if (kind !== 'code') {
+          const pinned = kind === 'schema' ? pinnedSchema : undefined
+          const missing = (why: string): void => {
+            if (kind === 'schema') pushToast('error', '스키마 보고서를 만들지 못했습니다', why)
+            else pushToast('warn', '스키마는 보고서에서 빠졌습니다', why)
+          }
+          try {
+            const schema = await loadSchemaForReport({
+              source: base,
+              leftEnv: leftEnvPath,
+              rightEnv: rightEnvPath,
+              sameSource,
+              codeLeft: comparison?.left ?? '',
+              codeRight: comparison?.right ?? '',
+              pinned,
+              myExclude: mySchemaExclude,
+            })
+            if (schema) {
+              input.schema = {
+                left: { env: leftEnv, date: schema.left },
+                right: { env: rightEnv, date: schema.right },
+                items: schema.tables,
+                // 화면 날짜 그대로 받았으면 "대신 썼다" 고 적을 일이 없다
+                wanted: pinned ?? { left: comparison?.left ?? '', right: comparison?.right ?? '' },
+                sameDump: schema.sameDump,
+              }
+            } else {
+              missing('고른 환경에 스키마 덤프가 없습니다.')
+            }
+          } catch (e) {
+            missing((e as Error).message)
+          }
+        }
+
+        if (input.code || input.schema) downloadText(reportFileName(input), buildReport(input))
+      } finally {
+        setReporting(false)
+      }
+    },
+    [
+      reportOptions,
+      envPair,
+      comparison,
+      includedFiles,
+      pinnedSchema,
+      base,
+      leftEnvPath,
+      rightEnvPath,
+      sameSource,
+      mySchemaExclude,
+    ]
+  )
 
   /** 규칙 파일의 상태 — 읽기 실패를 알리는 데 쓴다 (접힌 수는 아래 `local` 이 합쳐 센다) */
   const exclude = comparison?.exclude ?? null
@@ -945,20 +997,22 @@ export default function App() {
           loading={picker.loading}
         />
 
-        {/* 소스·스키마 비교 결과를 공지용 md 로 받는다. 비교가 끝나기 전에는 낼 숫자가 없다 */}
-        <button
-          type="button"
-          className="btn sm"
-          onClick={() => void downloadReport()}
-          disabled={!comparison || comparing || reporting}
-          title={
-            comparison
-              ? '지금 비교 결과(소스·스키마)를 보고서 md 파일로 내려받습니다'
-              : '비교가 끝나면 내려받을 수 있습니다'
-          }
-        >
-          {reporting ? '⬇ 만드는 중…' : '⬇ 보고서'}
-        </button>
+        {/*
+          보고서 — 본 버튼은 마지막으로 고른 보고서(처음은 통합), ▾ 에서 통합 · 소스 · 스키마를 고른다.
+          고를 수 없는 것은 메뉴에 잠근 채 이유를 적는다 (`ReportButton`).
+        */}
+        <ReportButton
+          primary={primaryKind(reportKind, schemaConfigured)}
+          tab={mode === 'schema' ? 'schema' : 'code'}
+          options={reportOptions}
+          busy={reporting}
+          onDownload={(kind) => void downloadReport(kind)}
+          onPick={(kind) => {
+            setReportKind(kind)
+            saveReportKind(kind)
+            void downloadReport(kind)
+          }}
+        />
 
         <button
           type="button"

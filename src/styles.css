@@ -821,6 +821,67 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   .header { gap: 8px; padding: 8px 12px; }
 }
 
+/* ---------------- 보고서 내려받기 — 나뉜 버튼 (ReportButton) ---------------- */
+
+.report-split { position: relative; }
+.report-split .report-caret { padding-left: 7px; padding-right: 7px; }
+
+/* 헤더 오른쪽 끝 근처라 오른쪽에 맞춰 연다 — 왼쪽에 맞추면 화면 밖으로 나간다 */
+.report-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  width: 280px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+  padding: 5px;
+}
+/* 좁은 화면에서 버튼이 왼쪽에 있으면 왼쪽에 맞춰 연다 (ReportButton 이 열 때 잰다) */
+.report-menu.align-left { right: auto; left: 0; }
+
+.report-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.report-item:hover:not(:disabled),
+.report-item:focus-visible { background: var(--accent-bg); outline: none; }
+.report-item:disabled { cursor: not-allowed; }
+.report-item:disabled .name { color: var(--faint); }
+
+.report-item .name { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
+.report-item .here {
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+.report-item .desc { font-size: 11.5px; color: var(--muted); padding-left: 18px; }
+/* 본 버튼이 받는 것 — 체크 자리는 늘 비워 둬서 이름 줄이 흔들리지 않게 */
+.report-item .check { width: 12px; color: var(--accent); }
+
+.report-foot {
+  margin-top: 4px;
+  padding: 6px 10px 3px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 11px;
+  color: var(--faint);
+}
+
 /* 앱 이름은 헤더에서 가장 덜 쓰이는 글자다 — 버튼이 둘째 줄로 밀리기 전에 이름부터 접는다 */
 @media (max-width: 1100px) {
   .brand > span:not(.dot) { display: none; }
