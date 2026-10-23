@@ -587,6 +587,26 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   position: relative;
 }
 
+/* 왼쪽 파일 경로가 남는 폭을 다 쓰고, 이동 버튼들은 오른쪽으로 붙는다 */
+.nav-path {
+  flex: 1;
+  min-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.navbar .nav-label { color: var(--faint); font-size: 11px; white-space: nowrap; }
+.navbar .nav-divider { width: 1px; height: 18px; background: var(--border); }
+
+/* 코드 칸이 좁으면 글자를 먼저 접어 경로 자리를 남긴다 (뜻은 툴팁 · 도움말에 있다) */
+@media (max-width: 1200px) {
+  .navbar .nav-label,
+  .navbar .nav-text { display: none; }
+}
+
 .nav-counter {
   font-variant-numeric: tabular-nums;
   font-size: 12.5px;
@@ -599,7 +619,8 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .jump-panel {
   position: absolute;
   top: calc(100% + 4px);
-  left: 14px;
+  /* 목록 버튼이 줄 오른쪽에 있으므로 오른쪽에 맞춰 연다 */
+  right: 14px;
   z-index: 40;
   width: min(620px, calc(100vw - 40px));
   max-height: 380px;

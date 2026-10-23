@@ -13,12 +13,13 @@ interface DiffNavProps {
   onPrevFile: () => void
   onNextFile: () => void
   onOpenSearch: () => void
-  /** 선택된 파일 경로 — 바뀌면 열려 있던 목록 패널을 닫는다 */
-  fileKey: string
+  /** 선택된 파일 경로 — 줄 왼쪽에 제목으로 보이고, 바뀌면 열려 있던 목록 패널을 닫는다 */
+  path: string
 }
 
 /**
- * diff 포인트 네비게이션
+ * diff 포인트 네비게이션 — **파일 제목 줄을 겸한다.** 왼쪽에 파일 경로, 오른쪽에 이동 버튼.
+ * 제목 줄을 따로 두면 코드 위에 한 줄(30px)이 더 쌓인다.
  *  - 이전 / 다음 이동
  *  - 목록에서 골라 이동
  *
@@ -34,13 +35,13 @@ export default function DiffNav({
   onPrevFile,
   onNextFile,
   onOpenSearch,
-  fileKey,
+  path,
 }: DiffNavProps) {
   const [open, setOpen] = useState(false)
   const panelRef = useRef<HTMLDivElement | null>(null)
   const count = hunks.length
 
-  useEffect(() => setOpen(false), [fileKey])
+  useEffect(() => setOpen(false), [path])
 
   useEffect(() => {
     if (!open) return
@@ -68,9 +69,11 @@ export default function DiffNav({
 
   return (
     <div className="navbar">
-      <span className="label" style={{ color: 'var(--faint)', fontSize: 11 }}>
-        DIFF 포인트
-      </span>
+      <b className="nav-path" title={path}>
+        {path}
+      </b>
+
+      <span className="label nav-label">DIFF 포인트</span>
 
       <div className="btn-group">
         <button className="btn sm" onClick={() => onStep(-1)} disabled={!count || current <= 0} title="이전 diff (p)">
@@ -102,10 +105,10 @@ export default function DiffNav({
         목록에서 선택 {open ? '▴' : '▾'}
       </button>
 
-      <div style={{ flex: 1 }} />
+      <span className="nav-divider" aria-hidden="true" />
 
-      <button className="btn sm" onClick={onOpenSearch} title="코드에서 찾기 (Ctrl+F)">
-        🔍 코드 검색
+      <button className="btn sm" onClick={onOpenSearch} title="코드에서 찾기 (Ctrl+F)" aria-label="코드 검색">
+        🔍<span className="nav-text"> 코드 검색</span>
       </button>
 
       <div className="btn-group">

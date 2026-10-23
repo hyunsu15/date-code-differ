@@ -1493,7 +1493,7 @@ export default function App() {
                   onPrevFile={() => goFile(-1)}
                   onNextFile={() => goFile(1)}
                   onOpenSearch={() => setSearchOpen(true)}
-                  fileKey={selectedFile.path}
+                  path={selectedFile.path}
                 />
 
                 {searchOpen && (
@@ -1506,10 +1506,6 @@ export default function App() {
                     onClose={closeSearch}
                   />
                 )}
-
-                <div className="file-title">
-                  <b>{selectedFile.path}</b>
-                </div>
 
                 <DiffViewer
                   diff={diff}
