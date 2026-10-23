@@ -61,6 +61,8 @@
         // 앞선 촬영이 남긴 값이 다음 장면으로 새면 엉뚱한 화면을 찍는다 — 매번 못 박는다
         localStorage.setItem('cd-mode', mode)
         localStorage.removeItem('cd-env-linked')
+        localStorage.removeItem('cd-report-kind')
+        localStorage.removeItem('cd-date-list')
         localStorage.removeItem('cd-my-exclude')
         localStorage.removeItem('cd-my-exclude-schema')
         localStorage.removeItem('cd-schema-kinds')
@@ -171,6 +173,7 @@
           mark(doc, byText(doc, '.optionbar .group', '종류'), 4, 4)
           mark(doc, '.filelist', 5, 4)
           mark(doc, '.schema-view .schema-section', 6, 4)
+          mark(doc, '.schema-legend', 7, 3)
         },
 
         /* 7. 제외 목록으로 접어 둔 파일 — 펼친 상태로 찍는다 */
@@ -185,10 +188,30 @@
           mark(doc, folded, 2, 4)
         },
 
-        /* 9. 보고서 내려받기 — 버튼 자리. 비교가 끝나 버튼이 살아난 뒤에 찍는다 */
+        /* 9. 보고서 내려받기 — 본 버튼(지금 탭의 보고서)과 ▾ 메뉴(소스 · 스키마 · 통합).
+              비교가 끝나 버튼이 살아난 뒤 메뉴를 펼쳐 찍는다 */
         async report(doc) {
-          await until(() => !byText(doc, 'button', '보고서')?.disabled)
-          mark(doc, byText(doc, 'button', '보고서'), 1, 4)
+          const main = '.report-split .btn:not(.report-caret)'
+          await until(() => !doc.querySelector(main)?.disabled)
+          doc.querySelector('.report-caret')?.click()
+          await until(() => doc.querySelector('.report-menu'))
+          await sleep(300)
+          mark(doc, main, 1, 3)
+          mark(doc, '.report-caret', 2, 3)
+          mark(doc, '.report-menu', 3, 4)
+        },
+
+        /* 10. 날짜 고르기 목록 — 왼쪽 칸을 열어 변경 이력(이전 → 이후 한 쌍씩)이 들어온 뒤 찍는다 */
+        async dates(doc) {
+          const input = doc.querySelector('.pick.left input')
+          await until(() => !input.disabled)
+          input.click()
+          await until(() => doc.querySelector('.date-menu .date-row.k-changed'))
+          await sleep(300)
+          const segs = doc.querySelectorAll('.date-menu .date-tools .seg')
+          mark(doc, segs[0], 1, 3)
+          mark(doc, segs[1], 2, 3)
+          mark(doc, '.date-menu .date-row.k-changed', 3, 2)
         },
 
         /* 6. 코드 비교 화면 */

@@ -34,6 +34,7 @@ const SHOTS = [
   ['07-exclude', 'exclude'],
   ['08-schema', 'schema'],
   ['09-report', 'report'],
+  ['10-dates', 'dates'],
 ]
 
 /**
