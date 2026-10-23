@@ -81,7 +81,7 @@ export default function SummaryCard({
           <div>
             <span style={{ color: 'var(--del-fg)' }}>−{num(stats.removed)}</span>{' '}
             <span style={{ color: 'var(--add-fg)' }}>+{num(stats.added)}</span>{' '}
-            <span style={{ color: '#d29922' }}>~{num(stats.modified)}</span>
+            <span style={{ color: 'var(--mod-fg)' }}>~{num(stats.modified)}</span>
           </div>
           <div>
             파일 <b>{num(fileCount)}</b>개 (변경 <b>{num(changedCount)}</b>)

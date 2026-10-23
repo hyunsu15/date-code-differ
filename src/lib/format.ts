@@ -2,7 +2,7 @@
 export function simColor(v: number): string {
   if (v >= 0.9) return 'var(--add-fg)'
   if (v >= 0.7) return 'var(--accent)'
-  if (v >= 0.4) return '#d29922'
+  if (v >= 0.4) return 'var(--mod-fg)'
   return 'var(--del-fg)'
 }
 

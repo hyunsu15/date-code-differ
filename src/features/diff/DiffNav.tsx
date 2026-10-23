@@ -166,7 +166,7 @@ export default function DiffNav({
               </span>
               <span className="prev">{h.preview || '(빈 줄)'}</span>
               <span className="cnt">
-                {h.mod > 0 && <span style={{ color: '#d29922' }}>~{h.mod} </span>}
+                {h.mod > 0 && <span style={{ color: 'var(--mod-fg)' }}>~{h.mod} </span>}
                 {h.add > 0 && <span style={{ color: 'var(--add-fg)' }}>+{h.add} </span>}
                 {h.del > 0 && <span style={{ color: 'var(--del-fg)' }}>−{h.del}</span>}
               </span>

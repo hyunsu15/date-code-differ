@@ -23,7 +23,10 @@
   --border-soft: #21262d;
   --text: #e6edf3;
   --muted: #8b949e;
-  --faint: #6e7681;
+  /* 보조 글자도 배경 위에서 4.5:1 을 넘긴다 (WCAG AA) — 가장 어두운 칸(surface-2)에서 4.8:1 */
+  --faint: #848d97;
+  /* 바뀐(~) 표시 글자색 — 라이트에서는 같은 노랑이 2.5:1 로 묻혀 따로 둔다 */
+  --mod-fg: #d29922;
   --accent: #58a6ff;
   --accent-bg: rgba(56, 139, 253, 0.15);
 
@@ -63,8 +66,9 @@
   --border: #d0d7de;
   --border-soft: #e4e8ed;
   --text: #1f2328;
-  --muted: #656d76;
-  --faint: #8c959f;
+  --muted: #59636e;
+  --faint: #656d76;
+  --mod-fg: #9a6700;
   --accent: #0969da;
   --accent-bg: rgba(9, 105, 218, 0.1);
 
@@ -316,7 +320,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   flex: 1;
 }
 .file-item .fdir {
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--faint);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -329,7 +333,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   align-items: center;
   gap: 8px;
   margin-top: 4px;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--muted);
 }
 .file-item .add { color: var(--add-fg); }
@@ -346,7 +350,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .simbar > i { display: block; height: 100%; border-radius: 2px; }
 
 .badge {
-  font-size: 9.5px;
+  font-size: 11px;
   padding: 1px 5px;
   border-radius: 4px;
   font-weight: 700;
@@ -396,7 +400,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   border-radius: 6px;
   padding: 6px 8px;
 }
-.metric .k { font-size: 10px; color: var(--faint); display: block; }
+.metric .k { font-size: 11px; color: var(--faint); display: block; }
 .metric .v { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 /* ================================================================
@@ -479,7 +483,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .cs-nav:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
 .cs-nav:disabled { opacity: 0.35; cursor: not-allowed; }
 
-.cs-note { flex-basis: 100%; font-size: 10.5px; color: #d29922; }
+.cs-note { flex-basis: 100%; font-size: 11px; color: var(--mod-fg); }
 
 .file-head {
   display: flex;
@@ -503,7 +507,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 }
 .stat-pill .add { color: var(--add-fg); font-weight: 600; }
 .stat-pill .del { color: var(--del-fg); font-weight: 600; }
-.stat-pill .mod { color: #d29922; font-weight: 600; }
+.stat-pill .mod { color: var(--mod-fg); font-weight: 600; }
 
 .sim-pill {
   display: inline-flex;
@@ -515,7 +519,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
 }
-.sim-pill small { font-weight: 500; font-size: 10px; opacity: 0.8; }
+.sim-pill small { font-weight: 500; font-size: 11px; opacity: 0.8; }
 
 /* ---------- diff 포인트 네비게이션 ---------- */
 
@@ -601,7 +605,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   white-space: nowrap;
   flex: 1;
 }
-.jump-item .cnt { font-size: 10.5px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.jump-item .cnt { font-size: 11px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 
 /* ---------- diff 본문 ---------- */
 
@@ -884,7 +888,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .report-item .here {
   padding: 0 5px;
   border-radius: 4px;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
   background: var(--accent-bg);
   color: var(--accent);
@@ -1023,7 +1027,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .date-row .d { font-family: var(--mono); font-size: 12.5px; }
 .date-row .c { font-size: 12px; font-weight: 600; justify-self: end; }
 .date-row .x { grid-column: 1 / -1; font-size: 11px; color: var(--muted); }
-.date-row.k-changed .c { color: #d29922; }
+.date-row.k-changed .c { color: var(--mod-fg); }
 /* 숫자 · 안내를 흐리게 — 날짜 직접에서 "이날 N개" 가 고른 뒤 결과처럼 읽히지 않게 */
 .date-row .c.muted { font-weight: 400; color: var(--muted); font-size: 11.5px; }
 
@@ -1041,7 +1045,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   background: #d29922;
   vertical-align: middle;
 }
-.date-row.k-deploy .c.muted { color: #d29922; }
+.date-row.k-deploy .c.muted { color: var(--mod-fg); }
 
 /* 환경이 다를 때 맨 위 빠른 선택 — `운영 최신 ↔ 테스트 최신` */
 .quick-row {
@@ -1067,7 +1071,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 
 /* 좌/우를 색으로도 구분한다 — 색만으로 전달하지 않도록 글자를 함께 둔다 */
 .side-tag {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.5px;
   padding: 2px 5px;
@@ -1149,7 +1153,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 }
 
 .banner.error { background: var(--del-bg); color: var(--del-fg); }
-.banner.warn { background: rgba(187, 128, 9, 0.14); color: #d29922; }
+.banner.warn { background: rgba(187, 128, 9, 0.14); color: var(--mod-fg); }
 
 /* ================================================================
    패키지 변경 요약 밴드
@@ -1209,7 +1213,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .pkg-chip .pkg-name { font-family: var(--mono); font-weight: 600; }
 
 .pkg-chip .pkg-status {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   padding: 1px 5px;
   border-radius: 4px;
@@ -1217,7 +1221,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 
 .pkg-chip.s-added .pkg-status { background: var(--add-bg); color: var(--add-fg); }
 .pkg-chip.s-removed .pkg-status { background: var(--del-bg); color: var(--del-fg); }
-.pkg-chip.s-modified .pkg-status { background: rgba(187, 128, 9, 0.2); color: #d29922; }
+.pkg-chip.s-modified .pkg-status { background: rgba(187, 128, 9, 0.2); color: var(--mod-fg); }
 .pkg-chip.s-same { opacity: 0.55; }
 .pkg-chip.s-same .pkg-status { background: var(--border-soft); color: var(--faint); }
 
@@ -1225,7 +1229,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .pkg-chip .pkg-counts i { font-style: normal; font-size: 11px; font-weight: 600; }
 .pkg-chip .pkg-counts .add { color: var(--add-fg); }
 .pkg-chip .pkg-counts .del { color: var(--del-fg); }
-.pkg-chip .pkg-counts .mod { color: #d29922; }
+.pkg-chip .pkg-counts .mod { color: var(--mod-fg); }
 
 /* ================================================================
    파일 목록 (추가분)
@@ -1266,7 +1270,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .excl-toggle:hover { color: var(--text); }
 .excl-toggle.on { color: var(--accent); }
 /* "접어 뒀는데 그 안에 변경이 있다" — 이 기능에서 유일하게 놓치면 안 되는 신호다 */
-.excl-toggle b { color: #d29922; font-variant-numeric: tabular-nums; }
+.excl-toggle b { color: var(--mod-fg); font-variant-numeric: tabular-nums; }
 .filelist-head .excl-error { color: var(--del-fg); font-weight: 600; }
 
 .filelist-empty { padding: 16px; color: var(--faint); font-size: 12.5px; line-height: 1.7; }
@@ -1298,12 +1302,12 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 
 .badge.s-added { background: var(--add-bg); color: var(--add-fg); }
 .badge.s-removed { background: var(--del-bg); color: var(--del-fg); }
-.badge.s-modified { background: rgba(187, 128, 9, 0.18); color: #d29922; }
+.badge.s-modified { background: rgba(187, 128, 9, 0.18); color: var(--mod-fg); }
 .badge.s-same { background: var(--border-soft); color: var(--faint); }
 
 .badge.s-excluded { background: var(--border-soft); color: var(--muted); }
 
-.file-item .mod { color: #d29922; }
+.file-item .mod { color: var(--mod-fg); }
 .file-item .no-sim { color: var(--faint); font-style: italic; }
 .file-item .simpct { min-width: 40px; text-align: right; font-weight: 600; }
 
@@ -1312,7 +1316,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .file-item.excluded:hover,
 .file-item.excluded.active { opacity: 1; }
 .file-item .excl-why {
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--muted);
   font-family: var(--mono);
   overflow: hidden;
@@ -1475,7 +1479,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 
 /* 헤더에서 SSH 모드임을 한눈에 */
 .src-tag {
-  font-size: 9.5px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.4px;
   padding: 1px 4px;
@@ -1525,7 +1529,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   min-width: 34px;
   padding: 3px 6px;
   border-radius: 4px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   text-align: center;
   letter-spacing: 0.3px;
@@ -1612,7 +1616,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .schema-band .package-head { flex-wrap: wrap; gap: 8px; }
 
 /* 기본키 변경은 빈도가 낮고 위험이 커서 다른 수치와 색을 달리 한다 */
-.schema-band .pk-warn { color: #d29922; font-weight: 600; }
+.schema-band .pk-warn { color: var(--mod-fg); font-weight: 600; }
 .schema-band .sys-hidden,
 .schema-section .sys-hidden { font-size: 11.5px; color: var(--faint); cursor: help; }
 
@@ -1719,7 +1723,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .schema-desc .one { flex: 1 1 0; }
 .schema-desc { cursor: help; }
 .schema-desc .arrow { color: var(--faint); flex-shrink: 0; }
-.schema-desc.differs { background: rgba(187, 128, 9, 0.1); color: #d29922; }
+.schema-desc.differs { background: rgba(187, 128, 9, 0.1); color: var(--mod-fg); }
 
 /*
   색 · 말 범례 — 표 이름 줄 오른쪽. 줄 색(초록·빨강·주황)과 같은 견본을 두고 말의 뜻을 실제 이름으로 푼다.
@@ -1749,12 +1753,12 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .schema-legend .s-added .sw { background: var(--add-bg); border-color: var(--add-fg); }
 .schema-legend .s-removed b { color: var(--del-fg); }
 .schema-legend .s-removed .sw { background: var(--del-bg); border-color: var(--del-fg); }
-.schema-legend .s-modified b { color: #d29922; }
+.schema-legend .s-modified b { color: var(--mod-fg); }
 .schema-legend .s-modified .sw { background: rgba(187, 128, 9, 0.12); border-color: #d29922; }
 
 /* ---------------- 테이블 목록 ---------------- */
 
-.badge.s-pk { background: rgba(187, 128, 9, 0.2); color: #d29922; }
+.badge.s-pk { background: rgba(187, 128, 9, 0.2); color: var(--mod-fg); }
 
 .file-item .row2.schema-row2 { gap: 8px; }
 
@@ -1786,14 +1790,14 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 }
 
 .schema-head:hover { background: var(--surface); }
-.schema-head .caret { color: var(--faint); font-size: 10px; }
+.schema-head .caret { color: var(--faint); font-size: 11px; }
 .schema-head .label { font-weight: 600; font-size: 13px; }
 .schema-head .total { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
 .schema-head .counts { display: inline-flex; gap: 10px; font-size: 12px; }
 .schema-head .counts i { font-style: normal; font-weight: 600; }
 .schema-head .counts .add { color: var(--add-fg); }
 .schema-head .counts .del { color: var(--del-fg); }
-.schema-head .counts .mod { color: #d29922; }
+.schema-head .counts .mod { color: var(--mod-fg); }
 .schema-head .sys-hidden { margin-left: auto; }
 
 .schema-empty {
@@ -1845,7 +1849,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   border: 1px solid currentColor;
   border-radius: 4px;
   font-family: var(--sans);
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 1.6;
   white-space: normal;
 }
@@ -1866,14 +1870,14 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .srow.s-removed { background: var(--del-bg); }
 .srow.s-removed .mark { color: var(--del-fg); }
 .srow.s-modified { background: rgba(187, 128, 9, 0.12); }
-.srow.s-modified .mark { color: #d29922; }
+.srow.s-modified .mark { color: var(--mod-fg); }
 
 /* 제약 종류(기본키·외래키…)·인덱스 유니크 여부 */
 .srow .kbadge {
   padding: 0 5px;
   border-radius: 4px;
   font-family: var(--sans);
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
   background: var(--border-soft);
   color: var(--muted);
@@ -1941,7 +1945,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 
 .toast .icon { font-size: 14px; line-height: 1.4; flex-shrink: 0; }
 .toast.t-error .icon { color: var(--del-fg); }
-.toast.t-warn .icon { color: #d29922; }
+.toast.t-warn .icon { color: var(--mod-fg); }
 .toast.t-info .icon { color: var(--accent); }
 
 .toast .body { min-width: 0; flex: 1; }
@@ -2089,7 +2093,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   cursor: help;
 }
 
-.schema-head .excl-hidden b { color: #d29922; font-weight: 600; }
+.schema-head .excl-hidden b { color: var(--mod-fg); font-weight: 600; }
 /* 둘 다 있으면 접은 이유를 나란히 보여준다 — 고칠 자리가 다르다 */
 .schema-head .excl-hidden + .sys-hidden { margin-left: 8px; }
 
@@ -2115,7 +2119,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   padding: 0 5px;
   border-radius: 4px;
   font-family: var(--sans);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.3px;
   background: var(--border-soft);
