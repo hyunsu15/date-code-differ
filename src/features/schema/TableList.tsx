@@ -121,7 +121,7 @@ export default function TableList({
               title={
                 byFile
                   ? `팀 규칙 파일에 적혀 접힌 테이블입니다 (${table.excludedBy}).\n` +
-                    '펼치려면 ⚙ 위치 의 스키마 제외 목록 파일을 고치세요.'
+                    '펼치려면 ⚙ 설정 → 제외 규칙 의 팀 스키마 제외 목록 파일을 고치세요.'
                   : table.excludedLocal
                     ? `내 제외 목록에서 뺍니다 (규칙: ${table.excludedBy})`
                     : '내 제외 목록에 넣어 접습니다 (이 브라우저에만 남습니다)'

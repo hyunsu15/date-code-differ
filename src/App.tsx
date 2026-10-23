@@ -26,7 +26,7 @@ import SnapshotPicker from './features/snapshots/SnapshotPicker.tsx'
 import Toasts from './features/toast/Toasts.tsx'
 import { EMPTY_SELECTION, normalizeSelection } from './features/snapshots/selection.ts'
 import { changeHistory } from './features/snapshots/dateList.ts'
-import SettingsPanel from './features/settings/SettingsPanel.tsx'
+import SettingsPanel, { type SettingsResult } from './features/settings/SettingsPanel.tsx'
 import {
   applyLocalExclude,
   loadLocalExclude,
@@ -59,6 +59,7 @@ import {
   describeSource,
   loadSourceSelection,
   presetById,
+  sameSelection,
   saveSourceSelection,
   shortSource,
   type SourceSelection,
@@ -622,11 +623,23 @@ export default function App() {
     [visibleFiles, selectedFile]
   )
 
-  const applySource = useCallback((next: SourceSelection): void => {
-    saveSourceSelection(next)
-    setSourceSelection(next)
-    setSettingsOpen(false)
-  }, [])
+  /**
+   * 설정 창의 적용 — 위치와 두 내 제외 목록을 한 번에 넣는다.
+   * 위치가 그대로면 위치 상태를 새 객체로 바꾸지 않는다 — 바꾸면 목록을 통째로 다시 읽는다
+   * (내 제외 목록만 고쳤는데 SSH 를 다시 훑게 된다).
+   */
+  const applySettings = useCallback(
+    (next: SettingsResult): void => {
+      if (!sameSelection(next.selection, sourceSelection)) {
+        saveSourceSelection(next.selection)
+        setSourceSelection(next.selection)
+      }
+      setMyExclude(next.myExclude)
+      setMySchemaExclude(next.mySchemaExclude)
+      setSettingsOpen(false)
+    },
+    [sourceSelection]
+  )
 
   /**
    * 한쪽 환경을 바꾸면 그쪽 루트가 바뀌고, 그 위치로 목록을 다시 읽는다
@@ -931,7 +944,7 @@ export default function App() {
   const reportOptions = useMemo((): Record<ReportKind, ReportOption> => {
     const codeReady = Boolean(comparison) && !comparing
     const codeWait = comparing ? '소스를 비교하는 중입니다' : '소스 비교가 끝나면 받을 수 있습니다'
-    const noSchema = '스키마 위치가 설정돼 있지 않습니다 (⚙ 위치 → 스키마 폴더)'
+    const noSchema = '스키마 위치가 설정돼 있지 않습니다 (⚙ 설정 → 위치 → 스키마 폴더)'
     return {
       code: { ok: codeReady, reason: codeWait, hint: '고른 날짜의 파일 변경 목록' },
       schema: {
@@ -1117,12 +1130,10 @@ export default function App() {
       {settingsOpen && (
         <SettingsPanel
           value={sourceSelection}
-          onApply={applySource}
-          onClose={() => setSettingsOpen(false)}
           myExclude={myExclude}
-          onChangeMyExclude={setMyExclude}
           mySchemaExclude={mySchemaExclude}
-          onChangeMySchemaExclude={setMySchemaExclude}
+          onApply={applySettings}
+          onClose={() => setSettingsOpen(false)}
         />
       )}
 

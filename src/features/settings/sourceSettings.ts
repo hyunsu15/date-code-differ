@@ -192,6 +192,19 @@ export function comparisonParams(
   return params
 }
 
+/**
+ * 두 선택이 같은 곳을 같은 방식으로 읽는지 — 서버에 보낼 값(`sourceParams`)으로 견준다.
+ * 객체를 통째로 견주면 키 순서나 빈 칸(`''` 과 없음)만 달라도 다르다고 나와,
+ * 내 제외 목록만 고치고 적용해도 목록을 처음부터 다시 읽었다.
+ */
+export function sameSelection(a: SourceSelection, b: SourceSelection): boolean {
+  if (a.presetId !== b.presetId) return false
+  const pa = sourceParams(a.source)
+  const pb = sourceParams(b.source)
+  const keys = Object.keys(pa)
+  return keys.length === Object.keys(pb).length && keys.every((k) => pa[k] === pb[k])
+}
+
 /** 화면에 보여줄 한 줄 요약 */
 export function describeSource(config: SourceConfig): string {
   if (config.mode !== 'ssh') return config.root.trim() || '(폴더 미지정)'

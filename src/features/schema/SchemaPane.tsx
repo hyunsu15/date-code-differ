@@ -48,7 +48,7 @@ interface SchemaPaneProps {
   loadingList: boolean
   showSidebar: boolean
   onToggleSidebar: () => void
-  /** 내 스키마 제외 목록 원문 (App 이 들고 ⚙ 위치와 나눠 쓴다) */
+  /** 내 스키마 제외 목록 원문 (App 이 들고 ⚙ 설정과 나눠 쓴다) */
   myExclude: string
   onChangeMyExclude: (text: string) => void
   /** 글자 크기는 코드 화면과 나눠 쓴다 (`features/settings/FontSize.tsx`) */

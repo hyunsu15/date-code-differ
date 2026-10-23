@@ -128,7 +128,7 @@ export default function FileList({
               title={
                 byFile
                   ? `규칙 파일에 적혀 접힌 파일입니다 (${f.excludedBy}).\n` +
-                    '펼치려면 ⚙ 위치 의 제외 목록 파일을 고치세요.'
+                    '펼치려면 ⚙ 설정 → 제외 규칙 의 팀 제외 목록 파일을 고치세요.'
                   : f.excludedLocal
                     ? `내 제외 목록에서 뺍니다 (규칙: ${f.excludedBy})`
                     : '내 제외 목록에 넣어 접습니다 (이 브라우저에만 남습니다)'

@@ -6,6 +6,7 @@ import {
   missingFields,
   parseSourceSelection,
   presetById,
+  sameSelection,
   shortSource,
   SOURCE_PRESETS,
   sourceParams,
@@ -218,6 +219,19 @@ test('위치를 한 줄로 요약한다', () => {
     'u@h:22 /r'
   )
   assert.equal(describeSource(DEFAULT_SSH_SOURCE), 'SSH (설정 필요)')
+})
+
+test('같은 위치인지는 서버에 보낼 값으로 본다 — 빈 칸·키 순서는 상관없다', () => {
+  const a = { presetId: 'local', source: { mode: 'local', root: './x', encoding: 'auto' } } as const
+  // 빈 문자열 칸이 붙고 키 순서가 달라도 같은 곳이다 (설정 창이 만든 값 vs 저장돼 있던 값)
+  const b = {
+    presetId: 'local',
+    source: { schemaRoot: '', excludeFile: ' ', encoding: 'auto', root: ' ./x ', mode: 'local' },
+  } as const
+  assert.equal(sameSelection(a, b), true)
+  assert.equal(sameSelection(a, { ...a, presetId: null }), false)
+  assert.equal(sameSelection(a, { ...a, source: { ...a.source, root: './y' } }), false)
+  assert.equal(sameSelection(a, { ...a, source: { ...a.source, encoding: 'euc-kr' } }), false)
 })
 
 test('헤더용 짧은 이름 — 폴더는 마지막 폴더, SSH 는 호스트', () => {
