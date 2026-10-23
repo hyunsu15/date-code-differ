@@ -1420,6 +1420,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 }
 
 .schema-band .side-tag,
+.schema-legend .side-tag,
 .schema-rows .side-tag {
   padding: 1px 6px;
   border-radius: 999px;
@@ -1431,21 +1432,29 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 }
 
 .schema-band .side-tag.env-c0,
+.schema-legend .side-tag.env-c0,
 .schema-rows .side-tag.env-c0 { background: rgba(240, 136, 62, 0.16); color: #f0883e; }
 .schema-band .side-tag.env-c1,
+.schema-legend .side-tag.env-c1,
 .schema-rows .side-tag.env-c1 { background: rgba(121, 192, 255, 0.16); color: #79c0ff; }
 .schema-band .side-tag.env-c2,
+.schema-legend .side-tag.env-c2,
 .schema-rows .side-tag.env-c2 { background: rgba(247, 120, 186, 0.16); color: #f778ba; }
 .schema-band .side-tag.env-c3,
+.schema-legend .side-tag.env-c3,
 .schema-rows .side-tag.env-c3 { background: rgba(57, 197, 207, 0.16); color: #39c5cf; }
 
 [data-theme='light'] .schema-band .side-tag.env-c0,
+[data-theme='light'] .schema-legend .side-tag.env-c0,
 [data-theme='light'] .schema-rows .side-tag.env-c0 { background: #fff1e5; color: #bc4c00; }
 [data-theme='light'] .schema-band .side-tag.env-c1,
+[data-theme='light'] .schema-legend .side-tag.env-c1,
 [data-theme='light'] .schema-rows .side-tag.env-c1 { background: #ddf4ff; color: #0969da; }
 [data-theme='light'] .schema-band .side-tag.env-c2,
+[data-theme='light'] .schema-legend .side-tag.env-c2,
 [data-theme='light'] .schema-rows .side-tag.env-c2 { background: #ffeff7; color: #bf3989; }
 [data-theme='light'] .schema-band .side-tag.env-c3,
+[data-theme='light'] .schema-legend .side-tag.env-c3,
 [data-theme='light'] .schema-rows .side-tag.env-c3 { background: #d4f5f7; color: #0d7d84; }
 
 /* 파일 맨 위 설명. 좌우가 다르면 그것도 변경이라 눈에 띄게 둔다 */
@@ -1481,28 +1490,45 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .schema-desc .arrow { color: var(--faint); flex-shrink: 0; }
 .schema-desc.differs { background: rgba(187, 128, 9, 0.1); color: #d29922; }
 
+/*
+  색 · 말 범례 — 표 이름 줄 오른쪽. 줄 색(초록·빨강·주황)과 같은 견본을 두고 말의 뜻을 실제 이름으로 푼다.
+  좁으면 다음 줄로 흐른다(이름 줄을 밀어내지 않게).
+*/
+/* 테이블 이름은 줄이지 않는다 — 좁으면 범례가 다음 줄로 내려간다 */
+.file-title.schema-title { flex-wrap: wrap; row-gap: 4px; }
+.file-title.schema-title b { flex-shrink: 0; }
+
+.file-title .schema-legend {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 14px;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  color: var(--muted);
+  cursor: help;
+}
+.schema-legend .lg { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.schema-legend .lg b { font-weight: 600; }
+/* 이름 태그는 글줄 안에 — 위아래로 튀지 않게 조금 줄이고 조사와 붙여 둔다 */
+.schema-legend .mean .side-tag { padding: 0 6px; margin-right: 1px; }
+.schema-legend .sw { width: 10px; height: 10px; border-radius: 2px; border: 1px solid; }
+.schema-legend .s-added b { color: var(--add-fg); }
+.schema-legend .s-added .sw { background: var(--add-bg); border-color: var(--add-fg); }
+.schema-legend .s-removed b { color: var(--del-fg); }
+.schema-legend .s-removed .sw { background: var(--del-bg); border-color: var(--del-fg); }
+.schema-legend .s-modified b { color: #d29922; }
+.schema-legend .s-modified .sw { background: rgba(187, 128, 9, 0.12); border-color: #d29922; }
+
 /* ---------------- 테이블 목록 ---------------- */
 
 .badge.s-pk { background: rgba(187, 128, 9, 0.2); color: #d29922; }
 
 .file-item .row2.schema-row2 { gap: 8px; }
-.file-item .kinds { display: inline-flex; gap: 3px; align-items: center; }
 
-/* 어떤 종류가 움직였는지만 점으로 — 자세한 것은 뷰어에서 본다 */
-.file-item .kind-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.file-item .kind-dot.k-column { background: var(--accent); }
-.file-item .kind-dot.k-constraint { background: #d29922; }
-.file-item .kind-dot.k-index { background: #a371f7; }
-
-.file-item .changed-lines { color: var(--muted); font-variant-numeric: tabular-nums; }
-.file-item .kind-counts { display: inline-flex; gap: 3px; }
-.file-item .kind-counts i { font-style: normal; font-weight: 600; }
+/* 종류별로 몇 줄이 바뀌었는지 글자로 — `컬럼 4 · 제약 1 · 인덱스 2` (schemaWording.kindSummary) */
+.file-item .kind-summary { color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* ---------------- 뷰어 ---------------- */
 
@@ -1532,7 +1558,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .schema-head .caret { color: var(--faint); font-size: 10px; }
 .schema-head .label { font-weight: 600; font-size: 13px; }
 .schema-head .total { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
-.schema-head .counts { display: inline-flex; gap: 5px; font-size: 12px; }
+.schema-head .counts { display: inline-flex; gap: 10px; font-size: 12px; }
 .schema-head .counts i { font-style: normal; font-weight: 600; }
 .schema-head .counts .add { color: var(--add-fg); }
 .schema-head .counts .del { color: var(--del-fg); }
@@ -1559,7 +1585,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 */
 .srow {
   display: grid;
-  grid-template-columns: 16px minmax(120px, 1.1fr) minmax(0, 1.6fr) 18px minmax(0, 1.6fr);
+  grid-template-columns: 96px minmax(120px, 1.1fr) minmax(0, 1.6fr) 18px minmax(0, 1.6fr);
   align-items: baseline;
   gap: 8px;
   padding: 3px 6px;
@@ -1575,7 +1601,24 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
   margin-bottom: 3px;
 }
 
-.srow .mark { color: var(--faint); font-weight: 700; text-align: center; }
+.srow .mark { color: var(--faint); font-weight: 700; }
+.srow.head .mark { font-weight: 400; }
+
+/*
+  줄 앞 칩 — 무엇이 어떻게 됐는지 말로 (`추가` · `삭제` · `타입 변경`, schemaWording.rowLabel).
+  줄 배경과 같은 색이라 글자색 + 테두리로 띄운다. 긴 말(`타입·NOT NULL 변경`)은 칸 안에서 줄바꿈한다.
+*/
+.srow .schg {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  font-family: var(--sans);
+  font-size: 10.5px;
+  line-height: 1.6;
+  white-space: normal;
+}
+.srow .schg:empty { display: none; }
 .srow .sname { font-weight: 600; overflow-wrap: anywhere; }
 .srow .sval { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
 .srow .sval .text { overflow-wrap: anywhere; }
@@ -1610,7 +1653,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 /* 좁은 화면에서는 좌우를 위아래로 접는다 */
 @media (max-width: 900px) {
   .srow {
-    grid-template-columns: 16px minmax(0, 1fr);
+    grid-template-columns: auto minmax(0, 1fr);
   }
   .srow .sval,
   .srow .sval.both { grid-column: 2 / -1; }
@@ -1773,7 +1816,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 /* 줄마다 접기 버튼이 붙어 칸이 하나 늘었다 */
 .schema-rows .srow {
   grid-template-columns:
-    16px minmax(120px, 1.1fr) minmax(0, 1.6fr) 18px minmax(0, 1.6fr)
+    96px minmax(120px, 1.1fr) minmax(0, 1.6fr) 18px minmax(0, 1.6fr)
     26px;
 }
 
@@ -1823,7 +1866,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 
 @media (max-width: 900px) {
   .schema-rows .srow {
-    grid-template-columns: 16px minmax(0, 1fr) 26px;
+    grid-template-columns: auto minmax(0, 1fr) 26px;
   }
   .srow .sval,
   .srow .sval.both { grid-column: 2 / 3; }

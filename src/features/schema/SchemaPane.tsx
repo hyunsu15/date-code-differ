@@ -12,6 +12,7 @@ import {
   type KindToggles,
 } from './schemaExclude.ts'
 import { envById, envColorClass, envPath } from '../settings/envFolder.ts'
+import { changeLegend, sideNames } from './schemaWording.ts'
 import FontSize from '../settings/FontSize.tsx'
 import { num } from '../../lib/format.ts'
 import { pushToast } from '../../lib/toast.ts'
@@ -85,6 +86,24 @@ export default function SchemaPane({
 }: SchemaPaneProps) {
   const leftEnv = envPath(leftEnvId)
   const rightEnv = envPath(rightEnvId)
+  /**
+   * 색 · 말 범례 — `추가` 가 무엇을 뜻하는지 실제 이름으로 푼다 (`schemaWording.changeLegend`).
+   * 줄 색과 말이 늘 왼쪽 → 오른쪽으로 읽히므로, 그 왼쪽·오른쪽이 누구인지만 알려 주면 된다.
+   */
+  const legendNames = sideNames(
+    { env: envById(leftEnvId).label, date: leftDate },
+    { env: envById(rightEnvId).label, date: rightDate }
+  )
+  const legend = changeLegend(legendNames)
+  /**
+   * 범례 속 이름은 **열 머리와 같은 환경 색 태그**로 그린다 — `운영` 주황, `테스트` 하늘색.
+   * 글자색만 바꾸면 주황 `운영` 이 주황 `변경` 과 섞여 보인다. 모양(태그)이 같아야 "이건 환경" 으로 읽힌다.
+   */
+  const sideTag = (side: 'left' | 'right') => (
+    <span className={`side-tag ${envColorClass(side === 'left' ? leftEnvId : rightEnvId)}`}>
+      {legendNames[side]}
+    </span>
+  )
   const configured = (source.schemaRoot ?? '').trim() !== ''
 
   const [comparison, setComparison] = useState<SchemaComparisonResponse | null>(null)
@@ -438,7 +457,7 @@ export default function SchemaPane({
         <section className="viewer">
           {selected ? (
             <>
-              <div className="file-title">
+              <div className="file-title schema-title">
                 <b>{selected.name}</b>
                 {selected.excluded && (
                   <span className="badge s-excluded">
@@ -446,6 +465,33 @@ export default function SchemaPane({
                   </span>
                 )}
                 {selected.primaryKeyChanged && <span className="badge s-pk">⚠ 기본키 변경</span>}
+
+                {/* 줄 색과 말의 뜻 — 바로 아래 줄들을 읽을 때 눈이 가는 자리에 둔다 */}
+                <span
+                  className="schema-legend"
+                  title={
+                    '왼쪽 → 오른쪽(위 화살표 방향)으로 읽은 말입니다.\n' +
+                    '환경이 다를 때는 어느 쪽이 맞는 상태인지 판단하지 않습니다 — 한쪽에 있고 다른 쪽에 없다는 뜻입니다.'
+                  }
+                >
+                  {legend.map((item) => (
+                    <span key={item.status} className={`lg s-${item.status}`}>
+                      <i className="sw" aria-hidden="true" />
+                      <b>{item.word}</b>
+                      {/* 한 덩어리 글줄로 둔다 — 태그와 조사(에는) 사이가 벌어지지 않게 */}
+                      <span className="mean">
+                        {item.has ? (
+                          <>
+                            {sideTag(item.has)}에는 있고{' '}
+                            {sideTag(item.has === 'left' ? 'right' : 'left')}에는 없음
+                          </>
+                        ) : (
+                          item.meaning
+                        )}
+                      </span>
+                    </span>
+                  ))}
+                </span>
               </div>
 
               <SchemaTable

@@ -183,6 +183,19 @@ export interface Snapshot {
 /** 파일 한 건이 좌우 비교에서 갖는 상태 */
 export type FileStatus = 'added' | 'removed' | 'modified' | 'same'
 
+/**
+ * 상태의 **말** — 화면(파일 목록 · 패키지 띠 · 스키마) 과 보고서가 모두 이것 하나를 쓴다.
+ *
+ * 늘 왼쪽 → 오른쪽(화면의 화살표 방향)으로 읽는다. 추가 = 오른쪽에는 있고 왼쪽에는 없음.
+ * 예전에는 곳마다 `신규` · `수정` · `추가` · `변경` 이 섞여 같은 일을 다른 이름으로 불렀다.
+ */
+export const STATUS_LABEL: Record<FileStatus, string> = {
+  added: '추가',
+  removed: '삭제',
+  modified: '변경',
+  same: '동일',
+}
+
 /** 패키지(= 날짜 폴더 바로 아래 디렉터리) 한 건이 갖는 상태 */
 export type PackageStatus = FileStatus
 
@@ -610,7 +623,7 @@ export interface SchemaCell {
 export interface SchemaRow {
   name: string
   status: SchemaItemStatus
-  /** 왼쪽에 없으면 null (신규) */
+  /** 왼쪽에 없으면 null (추가) */
   left: SchemaCell | null
   /** 오른쪽에 없으면 null (삭제) */
   right: SchemaCell | null

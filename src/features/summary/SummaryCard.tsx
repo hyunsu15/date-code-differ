@@ -45,7 +45,7 @@ function Ring({ value, size = 62, stroke = 6 }: RingProps) {
 interface SummaryCardProps {
   stats: DiffStats
   fileCount: number
-  /** 변경(수정·신규·삭제)된 파일 수 */
+  /** 바뀐(추가·삭제·변경) 파일 수 */
   changedCount: number
   leftLabel: string
   rightLabel: string
@@ -102,7 +102,7 @@ export default function SummaryCard({
             {pct(stats.diceSimilarity)}
           </span>
         </div>
-        <div className="metric" title="수정된 줄 안의 부분 일치까지 문자 단위로 반영">
+        <div className="metric" title="바뀐 줄 안의 부분 일치까지 문자 단위로 반영">
           <span className="k">문자 유사도</span>
           <span className="v" style={{ color: simColor(stats.charSimilarity) }}>
             {pct(stats.charSimilarity)}

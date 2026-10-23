@@ -129,13 +129,6 @@ export function filterTables(
   })
 }
 
-/** 한 테이블에서 바뀐 줄 수 (접은 것은 빼고) */
-export const changedRows = (table: TableDiff): number =>
-  SCHEMA_KINDS.reduce((sum, kind) => {
-    const s = table.sections[kind]
-    return sum + s.added + s.removed + s.modified
-  }, 0)
-
 /** 한 테이블에서 접어 둔 줄 수 (제외 목록·종류 토글) */
 export const excludedRows = (table: TableDiff): number =>
   SCHEMA_KINDS.reduce((sum, kind) => sum + table.sections[kind].excludedHidden, 0)

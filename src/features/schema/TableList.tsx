@@ -1,12 +1,6 @@
-import { changedRows, excludedRows } from './schemaView.ts'
-import { SCHEMA_KINDS, type SchemaItemStatus, type TableDiff } from '../../types.ts'
-
-const STATUS_LABEL: Record<SchemaItemStatus, string> = {
-  added: '신규',
-  removed: '삭제',
-  modified: '변경',
-  same: '동일',
-}
+import { excludedRows } from './schemaView.ts'
+import { kindSummary, tableLabel } from './schemaWording.ts'
+import { SCHEMA_KINDS, type TableDiff } from '../../types.ts'
 
 interface TableListProps {
   tables: TableDiff[]
@@ -22,7 +16,11 @@ interface TableListProps {
  *
  * **종류(컬럼·제약·인덱스)로 나누지 않는다.** 셋은 서로 나란한 객체가 아니라 한
  * 테이블의 속성이라, 목록에서 갈라 두면 같은 테이블을 세 번 눌러야 한다.
- * 종류는 뷰어 안에서 섹션으로 나누고, 여기서는 어떤 종류가 움직였는지만 점으로 알린다.
+ * 종류는 뷰어 안에서 섹션으로 나누고, 여기서는 종류별로 몇 줄이 바뀌었는지만 글자로 적는다
+ * (`컬럼 4 · 제약 1 · 인덱스 2`). 예전의 점과 `+2 −1 ~1` 은 어느 종류의 숫자인지 읽히지 않았다.
+ *
+ * 배지는 **테이블이 통째로 생기거나 없어졌을 때만** 단다. 안의 무엇이 바뀐 테이블에
+ * "변경" 배지를 달면, 그게 테이블의 상태인지 안의 항목인지 헷갈린다 — 둘째 줄이 그 몫을 한다.
  *
  * 항목마다 **접기 버튼**이 있다. 지금 보고 있는 변경과 상관없는 테이블을 치우는 데
  * 팀 규칙 파일을 고칠 수는 없어서, 그 자리에서 바로 접을 수 있어야 한다.
@@ -45,7 +43,7 @@ export default function TableList({
   return (
     <div className="filelist">
       {tables.map((table) => {
-        const changed = changedRows(table)
+        const whole = tableLabel(table)
         const systemHidden = SCHEMA_KINDS.reduce((s, k) => s + table.sections[k].systemHidden, 0)
         const hidden = excludedRows(table)
         // 팀 규칙 파일 때문에 접힌 것은 여기서 펼 수 없다 — 고칠 자리가 다르다
@@ -72,7 +70,7 @@ export default function TableList({
             >
               <div className="row1">
                 <span className="fname">{table.name}</span>
-                <span className={`badge s-${table.status}`}>{STATUS_LABEL[table.status]}</span>
+                {whole && <span className={`badge s-${table.status}`}>{whole}</span>}
                 {table.excluded && (
                   <span className="badge s-excluded">
                     {table.excludedLocal ? '내 제외' : '제외'}
@@ -100,24 +98,7 @@ export default function TableList({
                     {systemHidden > 0 && ` · 시스템 ${systemHidden}`}
                   </span>
                 ) : (
-                  <>
-                    <span className="kinds">
-                      {SCHEMA_KINDS.filter((k) => table.changedKinds.includes(k)).map((k) => (
-                        <i key={k} className={`kind-dot k-${k}`} />
-                      ))}
-                    </span>
-                    <span className="changed-lines">{changed}줄</span>
-                    {SCHEMA_KINDS.map((k) => {
-                      const s = table.sections[k]
-                      return (
-                        <span key={k} className="kind-counts">
-                          {s.added > 0 && <i className="add">+{s.added}</i>}
-                          {s.removed > 0 && <i className="del">−{s.removed}</i>}
-                          {s.modified > 0 && <i className="mod">~{s.modified}</i>}
-                        </span>
-                      )
-                    })}
-                  </>
+                  <span className="kind-summary">{kindSummary(table)}</span>
                 )}
               </div>
             </button>

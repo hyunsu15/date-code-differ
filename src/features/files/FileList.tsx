@@ -1,12 +1,5 @@
 import { pct, simColor, splitPath } from '../../lib/format.ts'
-import type { ComparedFile, FileStatus } from '../../types.ts'
-
-const STATUS_LABEL: Record<FileStatus, string> = {
-  added: '신규',
-  removed: '삭제',
-  modified: '변경',
-  same: '동일',
-}
+import { STATUS_LABEL, type ComparedFile } from '../../types.ts'
 
 interface FileListProps {
   files: ComparedFile[]
@@ -92,9 +85,9 @@ export default function FileList({
               <div className="row2">
                 {oneSided ? (
                   <span className="no-sim">
-                    {f.status === 'added'
-                      ? `이후 스냅샷에만 있음 · ${f.stats.added}줄`
-                      : `이전 스냅샷에만 있음 · ${f.stats.removed}줄`}
+                    {/* 추가·삭제는 배지가 이미 말한다 — 여기는 크기만. "이후 스냅샷에만" 은
+                        환경 간 비교(운영 → 테스트)에서는 이전·이후가 아니라 틀린 말이었다 */}
+                    파일 전체 · {f.status === 'added' ? f.stats.added : f.stats.removed}줄
                   </span>
                 ) : (
                   <>

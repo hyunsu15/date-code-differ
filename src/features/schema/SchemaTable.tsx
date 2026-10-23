@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { num, particle } from '../../lib/format.ts'
+import { rowLabel, sectionSummary } from './schemaWording.ts'
 import {
   SCHEMA_KINDS,
+  type FileStatus,
   SCHEMA_KIND_LABEL,
   type SchemaCell,
   type SchemaKind,
@@ -9,13 +11,6 @@ import {
   type SchemaSection,
   type TableDiff,
 } from '../../types.ts'
-
-const MARK: Record<SchemaRow['status'], string> = {
-  same: '',
-  modified: '~',
-  added: '+',
-  removed: '−',
-}
 
 interface SchemaTableProps {
   table: TableDiff
@@ -39,11 +34,18 @@ interface SchemaTableProps {
  * 한 줄 안에 `왼쪽 → 오른쪽` 을 두면 바뀐 곳이 눈에 바로 든다. 판을 갈라 두면
  * 순서가 어긋난 순간 눈이 계속 왔다 갔다 한다.
  *
+ * 줄 앞에는 **무엇이 어떻게 됐는지 말로** 적는다(`추가` · `삭제` · `타입 변경`).
+ * 예전의 `+ ~ −` 는 뜻을 알아야 읽혔고, `~` 가 타입인지 NOT NULL 인지 알 수 없었다.
+ * 말은 보고서와 같은 곳(`schemaWording.ts`)에서 온다.
+ *
  * 바뀌지 않은 줄은 값을 **한 번만** 적는다. 같은 값을 두 번 적으면 그게 화면의
  * 대부분을 차지해, 정작 바뀐 한 줄이 묻힌다.
  *
  * 줄마다 **접기 버튼**이 있다 — `REG_DTM` 처럼 늘 시끄러운 컬럼을 그 자리에서 치운다.
  */
+/** 섹션 머리 집계의 색 — 기존 `.add` · `.del` · `.mod` 를 그대로 쓴다 */
+const STATUS_CLASS: Record<FileStatus, string> = { added: 'add', removed: 'del', modified: 'mod', same: '' }
+
 export default function SchemaTable({
   table,
   leftLabel,
@@ -113,9 +115,11 @@ function Section({
 
         {changed > 0 && (
           <span className="counts">
-            {section.added > 0 && <i className="add">+{section.added}</i>}
-            {section.removed > 0 && <i className="del">−{section.removed}</i>}
-            {section.modified > 0 && <i className="mod">~{section.modified}</i>}
+            {sectionSummary(section).map((c) => (
+              <i key={c.status} className={STATUS_CLASS[c.status]}>
+                {c.text}
+              </i>
+            ))}
           </span>
         )}
 
@@ -162,7 +166,7 @@ function Section({
         ) : (
           <div className="schema-rows">
             <div className="srow head">
-              <span className="mark" />
+              <span className="mark">상태</span>
               <span className="sname">이름</span>
               <span className="sval">
                 <span className={`side-tag ${leftTagClass}`}>{leftLabel}</span>
@@ -175,7 +179,14 @@ function Section({
             </div>
 
             {rows.map((row) => (
-              <Row key={row.name} row={row} onToggleExclude={onToggleExclude} />
+              <Row
+                key={row.name}
+                row={row}
+                label={rowLabel(kind, row)}
+                leftLabel={leftLabel}
+                rightLabel={rightLabel}
+                onToggleExclude={onToggleExclude}
+              />
             ))}
           </div>
         ))}
@@ -185,9 +196,16 @@ function Section({
 
 function Row({
   row,
+  label,
+  leftLabel,
+  rightLabel,
   onToggleExclude,
 }: {
   row: SchemaRow
+  /** 줄 앞 칩에 적을 말. 바뀌지 않은 줄은 빈 문자열 */
+  label: string
+  leftLabel: string
+  rightLabel: string
   onToggleExclude: (member: string) => void
 }) {
   // 팀 규칙 파일이나 종류 토글로 접힌 줄은 여기서 펼 수 없다 — 고칠 자리가 다르다
@@ -223,7 +241,7 @@ function Row({
         <span className="mark" />
         <span className="sname">{row.name}</span>
         <span className="sval both">
-          <Value cell={row.right ?? row.left} />
+          <Value cell={row.right ?? row.left} side="" />
         </span>
         {excl}
       </div>
@@ -232,23 +250,34 @@ function Row({
 
   return (
     <div className={classes.join(' ')}>
-      <span className="mark">{MARK[row.status]}</span>
+      <span className="mark">
+        <span className="schg">{label}</span>
+      </span>
       <span className="sname">{row.name}</span>
       <span className="sval left">
-        <Value cell={row.left} />
+        <Value cell={row.left} side={leftLabel} />
       </span>
       <span className="sarrow">→</span>
       <span className="sval right">
-        <Value cell={row.right} />
+        <Value cell={row.right} side={rightLabel} />
       </span>
       {excl}
     </div>
   )
 }
 
-/** 한쪽 값. 없으면 (신규·삭제) 줄표로 자리를 남긴다 */
-function Value({ cell }: { cell: SchemaCell | null }) {
-  if (cell === null) return <span className="none">—</span>
+/**
+ * 한쪽 값. 없으면 **"없음" 이라고 적는다** — 줄표(`—`) 한 글자로는 "없다" 로 읽히지 않았다.
+ * 어느 쪽에 없는지는 툴팁으로 (`운영 2026-08-01에 없음`).
+ */
+function Value({ cell, side }: { cell: SchemaCell | null; side: string }) {
+  if (cell === null) {
+    return (
+      <span className="none" title={side ? `${side}에 없음` : undefined}>
+        없음
+      </span>
+    )
+  }
   return (
     <>
       {cell.badge && <span className="kbadge">{cell.badge}</span>}

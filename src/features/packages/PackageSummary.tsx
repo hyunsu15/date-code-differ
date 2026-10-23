@@ -1,12 +1,5 @@
 import { num } from '../../lib/format.ts'
-import type { PackageChange, PackageStatus } from '../../types.ts'
-
-const STATUS_LABEL: Record<PackageStatus, string> = {
-  added: '신규',
-  removed: '삭제',
-  modified: '변경',
-  same: '동일',
-}
+import { STATUS_LABEL, type PackageChange } from '../../types.ts'
 
 interface PackageSummaryProps {
   packages: PackageChange[]
@@ -53,7 +46,7 @@ export default function PackageSummary({ packages, selected, onSelect }: Package
             type="button"
             className={`pkg-chip s-${p.status} ${selected === p.name ? 'active' : ''}`}
             onClick={() => onSelect(selected === p.name ? null : p.name)}
-            title={`${p.name} — 신규 ${p.added} · 삭제 ${p.removed} · 수정 ${p.modified} · 동일 ${p.same}`}
+            title={`${p.name} — 추가 ${p.added} · 삭제 ${p.removed} · 변경 ${p.modified} · 동일 ${p.same}`}
           >
             <span className="pkg-name">{p.name}</span>
             <span className="pkg-status">{STATUS_LABEL[p.status]}</span>
