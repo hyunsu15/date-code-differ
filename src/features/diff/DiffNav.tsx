@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Hunk } from '../../types.ts'
 
 interface DiffNavProps {
@@ -20,8 +20,10 @@ interface DiffNavProps {
 /**
  * diff 포인트 네비게이션
  *  - 이전 / 다음 이동
- *  - 번호 입력으로 특정 포인트 이동
  *  - 목록에서 골라 이동
+ *
+ * 처음/마지막 · 번호 입력 이동은 뺐다 — 같은 일을 하는 수단이 넷이라 줄이 길어 두 줄로 접혔고,
+ * 목록에서 고르기가 그 둘을 다 대신한다(맨 위 · 맨 아래 · 번호가 다 보인다).
  */
 export default function DiffNav({
   hunks,
@@ -35,7 +37,6 @@ export default function DiffNav({
   fileKey,
 }: DiffNavProps) {
   const [open, setOpen] = useState(false)
-  const [jumpValue, setJumpValue] = useState('')
   const panelRef = useRef<HTMLDivElement | null>(null)
   const count = hunks.length
 
@@ -63,13 +64,6 @@ export default function DiffNav({
   const go = (i: number): void => {
     if (!count) return
     onGo(Math.max(0, Math.min(count - 1, i)), true)
-  }
-
-  const submitJump = (e: FormEvent): void => {
-    e.preventDefault()
-    const n = parseInt(jumpValue, 10)
-    if (!Number.isNaN(n)) go(n - 1)
-    setJumpValue('')
   }
 
   return (
@@ -103,32 +97,6 @@ export default function DiffNav({
           '차이 없음'
         )}
       </span>
-
-      <div className="btn-group">
-        <button className="btn sm" onClick={() => go(0)} disabled={!count} title="첫 diff">
-          ⇤ 처음
-        </button>
-        <button className="btn sm" onClick={() => go(count - 1)} disabled={!count} title="마지막 diff">
-          마지막 ⇥
-        </button>
-      </div>
-
-      <form onSubmit={submitJump} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <input
-          className="jump-input"
-          type="number"
-          min="1"
-          max={count || 1}
-          placeholder="번호"
-          value={jumpValue}
-          onChange={(e) => setJumpValue(e.target.value)}
-          disabled={!count}
-          title="번호를 입력하고 Enter"
-        />
-        <button className="btn sm" type="submit" disabled={!count || jumpValue === ''}>
-          이동
-        </button>
-      </form>
 
       <button className="btn sm" data-jump-toggle onClick={() => setOpen((v) => !v)} disabled={!count}>
         목록에서 선택 {open ? '▴' : '▾'}

@@ -596,18 +596,6 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 }
 .nav-counter b { color: var(--text); font-size: 14px; }
 
-.jump-input {
-  width: 58px;
-  padding: 4px 6px;
-  text-align: center;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-variant-numeric: tabular-nums;
-  outline: none;
-}
-.jump-input:focus { border-color: var(--accent); }
-
 .jump-panel {
   position: absolute;
   top: calc(100% + 4px);
