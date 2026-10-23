@@ -61,6 +61,7 @@ import {
   type SourceSelection,
 } from './features/settings/sourceSettings.ts'
 import SummaryCard from './features/summary/SummaryCard.tsx'
+import { shownItems, splitSame } from './lib/changedFirst.ts'
 import { aggregateStats, buildFileDiff } from './lib/diffEngine.ts'
 import { downloadText } from './lib/download.ts'
 import { num } from './lib/format.ts'
@@ -174,8 +175,12 @@ export default function App() {
   const [selectedPackage, setSelectedPackage] = useState<string | null>(null)
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [query, setQuery] = useState('')
-  // 요구사항: 기본은 "바뀐 파일만" 보여준다
-  const [onlyChanged, setOnlyChanged] = useState(true)
+  /**
+   * 동일한 파일을 펼쳐 볼지 — 목록 맨 아래 "동일한 파일 N개" 접힘 줄(`SameFold`).
+   * 처음은 접혀 있다(바뀐 파일만 보인다). 예전의 "변경된 파일만" 체크박스를 대신한다.
+   * 날짜·환경을 바꾸면 다시 접힌다 — 파일을 고를 때는 그대로 둔다(접히면 고른 파일이 사라진다).
+   */
+  const [sameOpen, setSameOpen] = useState(false)
   /**
    * 제외 목록에 걸린 파일을 펼쳐 볼지. **접힌 채로 시작한다** — 목록을 정리하려고 켠 기능이라
    * 켤 때마다 다시 접혀 있는 편이 맞고, 브라우저에 남기면 "펼쳐 둔 것을 잊은 채" 다음에
@@ -444,17 +449,32 @@ export default function App() {
 
   const includedFiles = useMemo(() => local.files.filter((f) => !f.excluded), [local])
 
-  const visibleFiles = useMemo(() => {
-    const all = local.files
+  /**
+   * 목록에 보일 파일 — **바뀐 파일**과 **동일한 파일** 두 묶음(`splitSame`). 각 묶음 안은 경로순 그대로.
+   * 바뀐 파일은 늘 보이고, 동일한 파일은 맨 아래 접힘 줄 밑에 — 펼쳤거나 검색 중일 때만 보인다.
+   * **검색은 접기와 상관없이 전체에서** 찾는다. 이전/다음 파일 이동(`[` `]`)은 보이는 것만 따른다.
+   */
+  const searchingFiles = query.trim() !== ''
+  const fileGroups = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return all.filter((f) => {
-      if (f.excluded && !showExcluded) return false
-      if (selectedPackage && f.packageName !== selectedPackage) return false
-      if (q && !f.path.toLowerCase().includes(q)) return false
-      if (onlyChanged && f.status === 'same') return false
-      return true
-    })
-  }, [local, query, onlyChanged, selectedPackage, showExcluded])
+    return splitSame(
+      local.files.filter((f) => {
+        if (f.excluded && !showExcluded) return false
+        if (selectedPackage && f.packageName !== selectedPackage) return false
+        if (q && !f.path.toLowerCase().includes(q)) return false
+        return true
+      })
+    )
+  }, [local, query, selectedPackage, showExcluded])
+  const visibleFiles = useMemo(
+    () => shownItems(fileGroups.changed, fileGroups.same, sameOpen, searchingFiles),
+    [fileGroups, sameOpen, searchingFiles]
+  )
+
+  // 날짜·환경이 바뀌면(= 다른 비교) 동일한 파일은 다시 접는다
+  useEffect(() => {
+    setSameOpen(false)
+  }, [comparison?.left, comparison?.right, leftSource, rightSource])
 
   const selectedFile = useMemo(
     () => visibleFiles.find((f) => f.path === selectedPath) ?? visibleFiles[0] ?? null,
@@ -992,7 +1012,6 @@ export default function App() {
     if (local.excluded > 0 && !showExcluded) {
       return '보이는 파일이 모두 접혀 있습니다. 위의 "제외" 를 눌러 펼쳐 보세요.'
     }
-    if (onlyChanged) return '변경된 파일이 없습니다. "변경된 파일만" 을 끄면 전체가 보입니다.'
     return '비교할 파일이 없습니다.'
   }
   /** 프리셋을 고른 상태면 그 이름을 헤더에 함께 보여준다 */
@@ -1375,18 +1394,10 @@ export default function App() {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                 />
-                <label className="toggle">
-                  <input
-                    type="checkbox"
-                    checked={onlyChanged}
-                    onChange={(e) => setOnlyChanged(e.target.checked)}
-                  />
-                  변경된 파일만
-                </label>
               </div>
 
               <div className="filelist-head">
-                파일 <b>{num(visibleFiles.length)}</b>개
+                {searchingFiles ? '찾은 바뀐 파일' : '바뀐 파일'} <b>{num(fileGroups.changed.length)}</b>개
                 {selectedPackage && <span className="pkg-filter">· {selectedPackage}</span>}
                 {comparison && comparison.skipped > 0 && (
                   <span
@@ -1434,7 +1445,11 @@ export default function App() {
               </div>
 
               <FileList
-                files={visibleFiles}
+                files={fileGroups.changed}
+                same={fileGroups.same}
+                sameOpen={sameOpen}
+                searching={searchingFiles}
+                onToggleSame={() => setSameOpen((v) => !v)}
                 selectedPath={selectedFile?.path ?? null}
                 onSelect={setSelectedPath}
                 onToggleExclude={toggleMyExclude}

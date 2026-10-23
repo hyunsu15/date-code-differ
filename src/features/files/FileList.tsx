@@ -1,8 +1,16 @@
 import { pct, simColor, splitPath } from '../../lib/format.ts'
 import { STATUS_LABEL, type ComparedFile } from '../../types.ts'
+import SameFold from './SameFold.tsx'
 
 interface FileListProps {
+  /** 바뀐 파일 — 늘 보인다 */
   files: ComparedFile[]
+  /** 동일한 파일 — 맨 아래 접힘 줄 밑. 펼쳤거나 검색 중일 때만 보인다 */
+  same: ComparedFile[]
+  sameOpen: boolean
+  /** 검색 중 — 동일한 것도 접기와 상관없이 맞는 것을 보여준다 */
+  searching: boolean
+  onToggleSame: () => void
   selectedPath: string | null
   onSelect: (path: string) => void
   /**
@@ -27,12 +35,16 @@ interface FileListProps {
  */
 export default function FileList({
   files,
+  same,
+  sameOpen,
+  searching,
+  onToggleSame,
   selectedPath,
   onSelect,
   onToggleExclude,
   emptyMessage,
 }: FileListProps) {
-  if (files.length === 0) {
+  if (files.length === 0 && same.length === 0) {
     return (
       <div className="filelist">
         <div className="filelist-empty">{emptyMessage}</div>
@@ -40,9 +52,7 @@ export default function FileList({
     )
   }
 
-  return (
-    <div className="filelist">
-      {files.map((f) => {
+  const item = (f: ComparedFile) => {
         const { dir, name } = splitPath(f.path)
         // 한쪽에만 있는 파일은 비교 대상이 없으므로 유사도 막대 대신 안내를 보여준다
         const oneSided = f.status === 'added' || f.status === 'removed'
@@ -129,7 +139,19 @@ export default function FileList({
             </button>
           </div>
         )
-      })}
+  }
+
+  return (
+    <div className="filelist">
+      {/* 바뀐 것이 없어도 동일한 것을 펼쳐 볼 수 있게, 접힘 줄은 그대로 둔다 */}
+      {files.length === 0 && (
+        <div className="filelist-empty slim">
+          {searching ? '바뀐 파일 중에는 맞는 것이 없습니다' : '바뀐 파일이 없습니다'}
+        </div>
+      )}
+      {files.map(item)}
+      <SameFold count={same.length} open={sameOpen} searching={searching} noun="파일" onToggle={onToggleSame} />
+      {(sameOpen || searching) && same.map(item)}
     </div>
   )
 }

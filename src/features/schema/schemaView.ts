@@ -1,3 +1,4 @@
+import { changedFirst } from '../../lib/changedFirst.ts'
 import { snapshotSortKey } from '../../lib/fileTypes.ts'
 import {
   SCHEMA_KINDS,
@@ -110,6 +111,9 @@ export interface TableFilter {
  *
  * 검색은 **컬럼 이름까지 본다.** "이 컬럼이 어느 테이블에 있더라" 가 실제로 자주 묻는
  * 질문이고, 테이블명만 걸면 그걸 못 찾는다.
+ *
+ * 바뀐 테이블을 **위로** 올린다 — "변경된 테이블만" 을 끄고 전체를 볼 때 바뀐 것이 동일한 것 사이에
+ * 흩어지지 않게 (`changedFirst`). 각 묶음 안은 이름순 그대로.
  */
 export function filterTables(
   tables: readonly TableDiff[],
@@ -117,7 +121,7 @@ export function filterTables(
 ): TableDiff[] {
   const needle = query.trim().toUpperCase()
 
-  return tables.filter((table) => {
+  const shown = tables.filter((table) => {
     if (table.excluded && !showExcluded) return false
     if (onlyChanged && table.status === 'same') return false
     if (kind && !table.changedKinds.includes(kind)) return false
@@ -127,6 +131,7 @@ export function filterTables(
       table.sections[k].rows.some((row) => row.name.toUpperCase().includes(needle))
     )
   })
+  return changedFirst(shown)
 }
 
 /** 한 테이블에서 접어 둔 줄 수 (제외 목록·종류 토글) */

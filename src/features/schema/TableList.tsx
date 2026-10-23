@@ -1,9 +1,17 @@
 import { excludedRows } from './schemaView.ts'
 import { kindSummary, tableLabel } from './schemaWording.ts'
 import { SCHEMA_KINDS, type TableDiff } from '../../types.ts'
+import SameFold from '../files/SameFold.tsx'
 
 interface TableListProps {
+  /** 바뀐 테이블 — 늘 보인다 */
   tables: TableDiff[]
+  /** 동일한 테이블 — 맨 아래 접힘 줄 밑. 펼쳤거나 검색 중일 때만 보인다 */
+  same: TableDiff[]
+  sameOpen: boolean
+  /** 검색 중 — 동일한 것도 접기와 상관없이 맞는 것을 보여준다 */
+  searching: boolean
+  onToggleSame: () => void
   selectedName: string | null
   onSelect: (name: string) => void
   /** 내 제외 목록에 넣거나 뺀다 (`features/schema/schemaExclude.ts`) */
@@ -27,12 +35,16 @@ interface TableListProps {
  */
 export default function TableList({
   tables,
+  same,
+  sameOpen,
+  searching,
+  onToggleSame,
   selectedName,
   onSelect,
   onToggleExclude,
   emptyMessage,
 }: TableListProps) {
-  if (tables.length === 0) {
+  if (tables.length === 0 && same.length === 0) {
     return (
       <div className="filelist">
         <div className="filelist-empty">{emptyMessage}</div>
@@ -40,9 +52,7 @@ export default function TableList({
     )
   }
 
-  return (
-    <div className="filelist">
-      {tables.map((table) => {
+  const item = (table: TableDiff) => {
         const whole = tableLabel(table)
         const systemHidden = SCHEMA_KINDS.reduce((s, k) => s + table.sections[k].systemHidden, 0)
         const hidden = excludedRows(table)
@@ -122,7 +132,19 @@ export default function TableList({
             </button>
           </div>
         )
-      })}
+  }
+
+  return (
+    <div className="filelist">
+      {/* 바뀐 것이 없어도 동일한 것을 펼쳐 볼 수 있게, 접힘 줄은 그대로 둔다 */}
+      {tables.length === 0 && (
+        <div className="filelist-empty slim">
+          {searching ? '바뀐 테이블 중에는 맞는 것이 없습니다' : '바뀐 테이블이 없습니다'}
+        </div>
+      )}
+      {tables.map(item)}
+      <SameFold count={same.length} open={sameOpen} searching={searching} noun="테이블" onToggle={onToggleSame} />
+      {(sameOpen || searching) && same.map(item)}
     </div>
   )
 }

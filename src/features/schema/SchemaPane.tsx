@@ -4,6 +4,7 @@ import SchemaBand from './SchemaBand.tsx'
 import SchemaTable from './SchemaTable.tsx'
 import TableList from './TableList.tsx'
 import { filterTables, summarize } from './schemaView.ts'
+import { shownItems, splitSame } from '../../lib/changedFirst.ts'
 import {
   applySchemaExclude,
   loadKindToggles,
@@ -111,7 +112,11 @@ export default function SchemaPane({
   const [comparing, setComparing] = useState(false)
 
   const [query, setQuery] = useState('')
-  const [onlyChanged, setOnlyChanged] = useState(true)
+  /**
+   * 동일한 테이블을 펼쳐 볼지 — 목록 맨 아래 "동일한 테이블 N개" 접힘 줄. 예전 "변경된 테이블만" 체크를 대신한다.
+   * 날짜·환경을 바꾸면 다시 접힌다(코드 파일 목록과 같은 규칙).
+   */
+  const [sameOpen, setSameOpen] = useState(false)
   const [kind, setKind] = useState<SchemaKind | null>(null)
   const [showSame, setShowSame] = useState(false)
   const [showExcluded, setShowExcluded] = useState(false)
@@ -203,10 +208,24 @@ export default function SchemaPane({
 
   const tables = excluded.tables
   const summary = useMemo(() => summarize(tables), [tables])
-  const visible = useMemo(
-    () => filterTables(tables, { query, onlyChanged, kind, showExcluded }),
-    [tables, query, onlyChanged, kind, showExcluded]
+  /**
+   * 바뀐 테이블 · 동일한 테이블 두 묶음. 동일한 것은 펼쳤거나 검색 중일 때만 보인다 —
+   * **검색은 접기와 상관없이 전체에서** 찾는다(컬럼 이름까지).
+   */
+  const searching = query.trim() !== ''
+  const groups = useMemo(
+    () => splitSame(filterTables(tables, { query, onlyChanged: false, kind, showExcluded })),
+    [tables, query, kind, showExcluded]
   )
+  const visible = useMemo(
+    () => shownItems(groups.changed, groups.same, sameOpen, searching),
+    [groups, sameOpen, searching]
+  )
+
+  // 날짜·환경이 바뀌면(= 다른 대조) 동일한 테이블은 다시 접는다
+  useEffect(() => {
+    setSameOpen(false)
+  }, [leftEnv, rightEnv, leftDate, rightDate])
 
   // 고른 테이블이 걸러져 사라지면 첫 항목으로 옮긴다 — 빈 화면을 남기지 않는다
   const selected = visible.find((t) => t.name === selectedName) ?? visible[0] ?? null
@@ -392,18 +411,10 @@ export default function SchemaPane({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={onlyChanged}
-                  onChange={(e) => setOnlyChanged(e.target.checked)}
-                />
-                변경된 테이블만
-              </label>
             </div>
 
             <div className="filelist-head">
-              테이블 <b>{visible.length}</b>개
+              {searching ? '찾은 바뀐 테이블' : '바뀐 테이블'} <b>{groups.changed.length}</b>개
               {kind && <span className="pkg-filter">· 종류 필터</span>}
               {excluded.offKinds.length > 0 && (
                 <span className="pkg-filter">
@@ -437,7 +448,11 @@ export default function SchemaPane({
             </div>
 
             <TableList
-              tables={visible}
+              tables={groups.changed}
+              same={groups.same}
+              sameOpen={sameOpen}
+              searching={searching}
+              onToggleSame={() => setSameOpen((v) => !v)}
               selectedName={selected?.name ?? null}
               onSelect={setSelectedName}
               onToggleExclude={toggleExclude}

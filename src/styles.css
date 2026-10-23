@@ -1255,6 +1255,31 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .filelist-head .excl-error { color: var(--del-fg); font-weight: 600; }
 
 .filelist-empty { padding: 16px; color: var(--faint); font-size: 12.5px; line-height: 1.7; }
+/* 바뀐 것은 없지만 아래에 동일한 것 접힘 줄이 있을 때 — 한 줄로 짧게 */
+.filelist-empty.slim { padding: 8px 9px; }
+
+/*
+  목록 맨 아래 "동일한 파일 / 테이블 N개" 접힘 줄 (SameFold) — 코드 비교의 "동일한 N줄 접힘" 과 같은 모양.
+  검색 중에는 누를 것이 아니라 구분 머리라 버튼 모양을 빼고 글자만 남긴다.
+*/
+.same-fold {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 6px 0 4px;
+  padding: 6px 9px;
+  background: var(--accent-bg);
+  border: none;
+  border-top: 1px solid var(--border-soft);
+  border-radius: 6px;
+  color: var(--accent);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.same-fold:hover { background: rgba(88, 166, 255, 0.22); }
+.same-fold.searching { background: none; color: var(--muted); cursor: default; padding-bottom: 2px; }
 
 .badge.s-added { background: var(--add-bg); color: var(--add-fg); }
 .badge.s-removed { background: var(--del-bg); color: var(--del-fg); }
