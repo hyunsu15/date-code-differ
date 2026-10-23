@@ -71,6 +71,8 @@ interface ComboProps {
   onPrefs: (patch: Partial<DateListPrefs>) => void
   onCommit: (id: string) => void
   disabled: boolean
+  /** 날짜 목록을 읽는 중 — 빈 칸에 "없음" 대신 "읽는 중" 을 적는다 */
+  loading: boolean
 }
 
 /** 목록 한 줄 — 이력 쌍이거나 날짜 하나 */
@@ -104,6 +106,7 @@ function SnapshotCombo({
   onPrefs,
   onCommit,
   disabled,
+  loading,
 }: ComboProps) {
   const [draft, setDraft] = useState(value)
   const [typing, setTyping] = useState(false)
@@ -228,7 +231,7 @@ function SnapshotCombo({
         }}
         onClick={() => setOpen(true)}
         disabled={disabled}
-        placeholder={disabled ? '— 없음 —' : '날짜 입력'}
+        placeholder={loading ? '읽는 중…' : disabled ? '— 없음 —' : '날짜 입력'}
         aria-label={label}
         aria-invalid={unresolved}
         aria-expanded={open}
@@ -520,6 +523,7 @@ export default function SnapshotPicker({
     prefs,
     onPrefs: changePrefs,
     disabled,
+    loading,
   }
 
   return (
@@ -579,7 +583,14 @@ export default function SnapshotPicker({
         disabled={loading}
         title="외부 폴더를 다시 읽습니다"
       >
-        ⟳ 새로고침
+        {/* 새로고침은 화면을 비우지 않고 읽으므로, 읽는 중인 것은 이 버튼이 알린다 */}
+        {loading ? (
+          <>
+            <span className="spinner" aria-hidden="true" /> 읽는 중…
+          </>
+        ) : (
+          '⟳ 새로고침'
+        )}
       </button>
     </div>
   )

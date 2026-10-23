@@ -1008,12 +1008,20 @@ export default function App() {
    * 규칙을 너무 넓게 적어 전부 접어 놓고도 폴더가 비었다고 오해한다.
    */
   const emptyFileMessage = (): string => {
+    if (loadingSnapshots) return '날짜 목록을 읽는 중…'
     if (comparing) return '비교하는 중…'
     if (local.excluded > 0 && !showExcluded) {
       return '보이는 파일이 모두 접혀 있습니다. 위의 "제외" 를 눌러 펼쳐 보세요.'
     }
     return '비교할 파일이 없습니다.'
   }
+  /**
+   * 지금 기다리는 일 — 없으면 null.
+   * 날짜 목록을 읽는 동안은 비교도 시작 전이라, 이걸 따로 짚지 않으면 "비교할 파일이 없습니다" 가
+   * 떠서 빈 폴더처럼 보인다 (SSH 는 몇 초씩 걸린다).
+   */
+  const busy = loadingSnapshots ? '날짜 목록을 읽는 중…' : comparing ? '비교하는 중…' : null
+
   /** 프리셋을 고른 상태면 그 이름을 헤더에 함께 보여준다 */
   const presetLabel = presetById(sourceSelection.presetId)?.label ?? null
 
@@ -1380,8 +1388,9 @@ export default function App() {
                   loading={comparing}
                 />
               ) : (
-                <div className="summary-empty">
-                  {comparing ? '비교하는 중…' : '비교할 파일이 없습니다.'}
+                <div className="summary-empty" role="status">
+                  {busy && <span className="spinner" aria-hidden="true" />}
+                  {busy ?? '비교할 파일이 없습니다.'}
                 </div>
               )}
 
@@ -1516,7 +1525,11 @@ export default function App() {
               <>
                 <div className="file-title">
                   <b>{selectedFile.path}</b>
-                  {!contentError && <span className="loading">불러오는 중…</span>}
+                  {!contentError && (
+                    <span className="loading">
+                      <span className="spinner" aria-hidden="true" /> 불러오는 중…
+                    </span>
+                  )}
                 </div>
                 <div className="empty">
                   {contentError ? (
@@ -1525,18 +1538,35 @@ export default function App() {
                       <p className="error-detail">{contentError}</p>
                     </>
                   ) : (
-                    <h2>파일을 읽는 중입니다</h2>
+                    <>
+                      <span className="spinner lg" aria-hidden="true" />
+                      <h2>파일을 읽는 중입니다</h2>
+                    </>
                   )}
                 </div>
               </>
             ) : (
-              <div className="empty">
-                <h2>{comparing ? '비교하는 중…' : '비교할 파일을 고르세요'}</h2>
-                <p>
-                  위에서 좌우의 환경·날짜를 고르면 바뀐 패키지와 파일이 표시됩니다.
-                  <br />
-                  왼쪽 목록에서 파일을 누르면 diff 가 열립니다.
-                </p>
+              <div className="empty" role="status">
+                {busy && <span className="spinner lg" aria-hidden="true" />}
+                <h2>{busy ?? '비교할 파일을 고르세요'}</h2>
+                {loadingSnapshots ? (
+                  <p>
+                    {describeSource(leftSource)} 에서 날짜 폴더를 찾고 있습니다.
+                    {leftSource.mode === 'ssh' && (
+                      <>
+                        <br />
+                        SSH 는 접속에 몇 초 걸릴 수 있습니다. 오래 멈춰 있으면 <code>npm run dev</code> 를
+                        띄운 터미널에서 비밀번호를 묻고 있는지 확인하세요.
+                      </>
+                    )}
+                  </p>
+                ) : (
+                  <p>
+                    위에서 좌우의 환경·날짜를 고르면 바뀐 패키지와 파일이 표시됩니다.
+                    <br />
+                    왼쪽 목록에서 파일을 누르면 diff 가 열립니다.
+                  </p>
+                )}
               </div>
             )}
           </section>

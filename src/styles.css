@@ -1334,10 +1334,38 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .tok-host-variable { color: var(--tok-class); }
 
 .summary-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 16px 12px;
   border-bottom: 1px solid var(--border);
   color: var(--faint);
   font-size: 12.5px;
+}
+
+/*
+  읽는 중 표시 — 글자만 있으면 "멈춘 화면" 과 구별되지 않는다. 도는 고리가 살아 있다는 신호다.
+  움직임을 줄여 달라는 설정이면 고리는 멈춘 채 글자만으로 알린다.
+*/
+.spinner {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  vertical-align: -2px;
+  animation: spin 0.8s linear infinite;
+}
+.spinner.lg { width: 28px; height: 28px; border-width: 3px; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; }
 }
 
 /* ================================================================
