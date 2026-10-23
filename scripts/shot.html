@@ -66,6 +66,7 @@
         localStorage.removeItem('cd-my-exclude')
         localStorage.removeItem('cd-my-exclude-schema')
         localStorage.removeItem('cd-schema-kinds')
+        localStorage.removeItem('cd-summary-open')
       }
 
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -128,14 +129,14 @@
           mark(doc, '.split-panes', 5, 3)
         },
 
-        /* 2. 위치 설정 패널 */
+        /* 2. 설정 창 — 헤더의 위치 버튼으로 연다 (위치 탭) */
         async settings(doc) {
-          byText(doc, 'button', '위치')?.click()
+          doc.querySelector('.source-btn')?.click()
           await until(() => doc.querySelector('.settings .preset-list'))
           await sleep(400)
           mark(doc, '.settings .preset-list', 1, 4)
           mark(doc, '.settings-body .field', 2, 4)
-          mark(doc, byText(doc, '.settings-body .field', '제외 목록 파일'), 3, 4)
+          mark(doc, byText(doc, '.settings-tab', '제외 규칙'), 3, 3)
           mark(doc, byText(doc, '.settings button', '적용'), 4, 5)
         },
 
@@ -214,6 +215,39 @@
           mark(doc, '.date-menu .date-row.k-changed', 3, 2)
         },
 
+        /* 11. 보기 옵션 — 무시 · 줄바꿈 · 글자 크기를 모은 팝오버를 펼쳐 찍는다 */
+        async viewoptions(doc) {
+          doc.querySelector('.view-options .btn')?.click()
+          await until(() => doc.querySelector('.vo-panel'))
+          await sleep(300)
+          mark(doc, '.view-options .btn', 1, 4)
+          mark(doc, '.vo-panel', 2, 3)
+        },
+
+        /* 12. ⊘ 로 접은 뒤 뜨는 되돌리기 알림 */
+        async undo(doc) {
+          const items = [...doc.querySelectorAll('.filelist .file-item')]
+          const target = items[1] ?? items[0]
+          target?.parentElement?.querySelector('.file-excl')?.click()
+          await until(() => doc.querySelector('.toast .toast-action'))
+          // 안내 알림은 6초 뒤 접히는데, 캡처는 가상 시간을 20초 흘린 뒤 찍는다 — 그대로 두면
+          // 박스만 남고 알림은 사라진다. React 가 모르는 복제본을 같은 자리에 붙여 둔다.
+          doc.body.appendChild(doc.querySelector('.toasts').cloneNode(true))
+          await sleep(300)
+          mark(doc, '.filelist-head', 1, 3)
+          mark(doc, '.toast', 2, 4)
+        },
+
+        /* 13. 도움말 — 헤더 ? 버튼 */
+        async help(doc) {
+          const button = doc.querySelector('[aria-label="도움말"]')
+          button?.click()
+          await until(() => doc.querySelector('.settings.help'))
+          await sleep(300)
+          mark(doc, button, 1, 3)
+          mark(doc, '.settings.help', 2, 2)
+        },
+
         /* 6. 코드 비교 화면 */
         async diff(doc) {
           mark(doc, '.optionbar', 1, 3)
@@ -243,6 +277,11 @@
 
       await new Promise((r) => frame.addEventListener('load', r, { once: true }))
       const doc = frame.contentDocument
+
+      // 헤드리스 캡처는 등장 애니메이션 중간(투명)에서 찍히기도 한다 — 알림이 빈 상자로 나온다
+      const still = doc.createElement('style')
+      still.textContent = '*, *::before, *::after { animation: none !important; transition: none !important; }'
+      doc.head.appendChild(still)
 
       // 비교가 끝나 목록이 뜰 때까지 기다린다 (스키마는 테이블 목록이다)
       await until(() => doc.querySelector('.filelist .file-item'))
