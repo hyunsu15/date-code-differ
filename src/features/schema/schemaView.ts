@@ -15,12 +15,21 @@ import {
  * **무엇을 골랐는지 화면에 적는다**.
  */
 
+/** `YYYYMMDD` → 날 수. 키를 숫자로 빼면 달이 바뀔 때 거리가 틀린다 (0801 − 0731 = 70) */
+const dayNumber = (key: string): number =>
+  Date.UTC(Number(key.slice(0, 4)), Number(key.slice(4, 6)) - 1, Number(key.slice(6, 8))) / 86_400_000
+
 /**
  * 고른 날짜에 대응하는 스키마 날짜를 찾는다.
  *
  * 1. 같은 날짜가 있으면 그것
- * 2. 없으면 **그 날짜 이하로 가장 가까운 것** — 그 시점에 실제로 걸려 있던 스키마다
- * 3. 그것도 없으면(스키마가 전부 더 나중이면) 가장 오래된 것
+ * 2. 없으면 **날 수로 가장 가까운 것** — 앞이든 뒤든. 거리가 같으면 앞의 것
+ *    (그 시점에 이미 걸려 있던 스키마)
+ * 3. 날짜로 읽히지 않으면 가장 오래된 것
+ *
+ * 예전에는 "그 날짜 이하" 만 봤다. 그러면 하루 뒤 덤프를 두고 한 달 전 덤프를 고르고,
+ * 이하가 하나도 없으면 맨 끝으로 튀어 사람이 보기에 무작위로 고른 것처럼 보였다.
+ * 덤프는 배포 직후에 뜨는 경우가 많아, 바로 뒤의 덤프가 그날 상태에 더 가깝기도 하다.
  *
  * 목록은 최신순으로 들어온다 (서버가 그렇게 정렬해 보낸다).
  *
@@ -31,15 +40,21 @@ export function matchSchemaDate(items: readonly SchemaSnapshotRef[], wanted: str
   if (items.some((s) => s.id === wanted)) return wanted
 
   const key = snapshotSortKey(wanted)
-  if (key) {
-    // 최신순이라 조건에 처음 걸리는 것이 곧 "가장 가까운 이전" 이다
-    const before = items.find((s) => s.sortKey && s.sortKey <= key)
-    if (before) return before.id
-  }
+  const dated = key ? items.filter((s) => s.sortKey) : []
+  // 날짜로 읽히지 않으면 잴 거리가 없다 — 빈손으로 두는 것보다 낫고, 무엇을 골랐는지는 화면에 적힌다
+  if (dated.length === 0) return items[items.length - 1].id
 
-  // 날짜로 읽히지 않거나 전부 더 나중이면 가장 오래된 것을 준다 —
-  // 빈손으로 두는 것보다 낫고, 무엇을 골랐는지는 화면에 적힌다
-  return items[items.length - 1].id
+  const target = dayNumber(key)
+  let best = dated[0]
+  let bestGap = Infinity
+  for (const s of dated) {
+    const gap = Math.abs(dayNumber(s.sortKey) - target)
+    if (gap < bestGap || (gap === bestGap && s.sortKey < best.sortKey)) {
+      best = s
+      bestGap = gap
+    }
+  }
+  return best.id
 }
 
 /** 스키마 화면 상단에 뿌릴 요약 */
