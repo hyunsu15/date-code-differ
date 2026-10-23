@@ -26,6 +26,7 @@ import SnapshotPicker from './features/snapshots/SnapshotPicker.tsx'
 import Toasts from './features/toast/Toasts.tsx'
 import { EMPTY_SELECTION, normalizeSelection } from './features/snapshots/selection.ts'
 import { changeHistory } from './features/snapshots/dateList.ts'
+import HelpPanel from './features/help/HelpPanel.tsx'
 import SettingsPanel, { type SettingsResult } from './features/settings/SettingsPanel.tsx'
 import {
   applyLocalExclude,
@@ -130,6 +131,7 @@ export default function App() {
   /* ---------------- 외부 폴더 / 스냅샷 ---------------- */
   const [sourceSelection, setSourceSelection] = useState<SourceSelection>(loadSourceSelection)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   /**
    * 환경 폴더(운영/테스트) — **좌우가 각각 고른다.** 목록은 change/config.ts 에서 온다.
    * 환경마다 배포 시점이 달라 같은 날짜가 양쪽에 다 있으리라는 보장이 없다.
@@ -903,6 +905,7 @@ export default function App() {
       else if (e.key === '[') goFile(-1)
       else if (e.key === '/') fileSearchRef.current?.focus()
       else if (e.key === 'u') setViewMode((v) => (v === 'split' ? 'unified' : 'split'))
+      else if (e.key === '?') setHelpOpen(true)
       else handled = false
 
       if (handled) e.preventDefault()
@@ -1137,6 +1140,8 @@ export default function App() {
         />
       )}
 
+      {helpOpen && <HelpPanel onClose={() => setHelpOpen(false)} />}
+
       <header className="header">
         <div className="brand">
           <span className="dot">◧</span>
@@ -1220,6 +1225,16 @@ export default function App() {
           <span className={`src-tag ${base.mode}`}>{base.mode === 'ssh' ? 'SSH' : '폴더'}</span>
           <span className="source-name">{presetLabel ?? '직접 입력'}</span>
           <span className="source-path">{shortSource(base)}</span>
+        </button>
+
+        <button
+          type="button"
+          className="btn sm"
+          onClick={() => setHelpOpen(true)}
+          title="도움말 · 단축키 (?)"
+          aria-label="도움말"
+        >
+          ?
         </button>
 
         <button

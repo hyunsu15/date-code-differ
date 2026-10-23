@@ -876,8 +876,13 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 }
 
 /* 폴더 이름은 툴팁에도 있다 — 버튼이 둘째 줄로 밀리기 전에 먼저 접는다 */
-@media (max-width: 1300px) {
+@media (max-width: 1380px) {
   .source-btn .source-path { display: none; }
+}
+
+/* 더 좁으면 프리셋 이름도 접고 종류 표시(폴더/SSH)만 남긴다 */
+@media (max-width: 1100px) {
+  .source-btn .source-name { display: none; }
 }
 
 @media (max-width: 1180px) {
@@ -947,7 +952,7 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 }
 
 /* 앱 이름은 헤더에서 가장 덜 쓰이는 글자다 — 버튼이 둘째 줄로 밀리기 전에 이름부터 접는다 */
-@media (max-width: 1240px) {
+@media (max-width: 1280px) {
   .brand > span:not(.dot) { display: none; }
 }
 
@@ -2213,3 +2218,37 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 .srow.s-modified .nn,
 .srow.s-added .nn,
 .srow.s-removed .nn { background: rgba(139, 148, 158, 0.22); color: var(--text); }
+
+/* ================================================================
+   도움말 (?)
+   ================================================================ */
+
+.settings.help { width: min(560px, 100%); height: auto; max-height: 90vh; }
+
+.help-steps,
+.help-legend { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.help-steps li,
+.help-legend li { font-size: 12.5px; line-height: 1.6; color: var(--muted); }
+.help-steps b,
+.help-legend b { color: var(--text); }
+.help-legend .del { color: var(--del-fg); font-weight: 700; }
+.help-legend .add { color: var(--add-fg); font-weight: 700; }
+.help-legend .mod { color: var(--mod-fg); font-weight: 700; }
+
+.help-keys { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.help-keys td { padding: 5px 4px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+.help-keys td:first-child { width: 44%; white-space: nowrap; color: var(--muted); }
+
+.settings.help kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 6px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-align: center;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}
