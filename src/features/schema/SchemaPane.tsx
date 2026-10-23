@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchSchemaComparison } from '../../api/client.ts'
 import SchemaBand from './SchemaBand.tsx'
 import SchemaTable from './SchemaTable.tsx'
@@ -7,6 +7,7 @@ import { filterTables, summarize } from './schemaView.ts'
 import { shownItems, splitSame } from '../../lib/changedFirst.ts'
 import {
   applySchemaExclude,
+  isSchemaExcluded,
   loadKindToggles,
   saveKindToggles,
   toggleSchemaExclude,
@@ -233,10 +234,33 @@ export default function SchemaPane({
     if (selected && selected.name !== selectedName) setSelectedName(selected.name)
   }, [selected, selectedName])
 
-  /** 목록·표에서 한 번 눌러 접거나 펼친다 */
+  /**
+   * 되돌리기가 볼 최신 목록 — 알림은 몇 초 뒤에 눌리므로 누른 그때의 목록에서 빼야 한다
+   * (만들 때 목록을 붙잡아 두면 그사이 넣은 것까지 함께 날아간다).
+   */
+  const latestExclude = useRef(myExclude)
+  latestExclude.current = myExclude
+
+  /**
+   * 목록·표에서 한 번 눌러 접거나 펼친다.
+   * 접으면 바로 사라지므로 무엇을 접었는지와 되돌리기를 알림으로 준다 (코드 파일 목록과 같다).
+   */
   const toggleExclude = useCallback(
     (table: string, member?: string) => {
+      const adding = !isSchemaExcluded(myExclude, table, member)
       onChangeMyExclude(toggleSchemaExclude(myExclude, table, member))
+      if (!adding) return
+      const name = member === undefined ? table : `${table}.${member}`
+      pushToast('info', `내 스키마 제외 목록에 넣었습니다 — ${name}`, undefined, {
+        label: '되돌리기',
+        run: () => {
+          const text = latestExclude.current
+          // 그사이 손으로 뺐으면 다시 넣지 않는다 (토글이라 두 번 돌면 도로 들어간다)
+          if (isSchemaExcluded(text, table, member)) {
+            onChangeMyExclude(toggleSchemaExclude(text, table, member))
+          }
+        },
+      })
     },
     [myExclude, onChangeMyExclude]
   )

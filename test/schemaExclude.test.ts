@@ -5,6 +5,7 @@ import { compareSchemas } from '../src/lib/schemaDiff.ts'
 import {
   ALL_KINDS,
   applySchemaExclude,
+  isSchemaExcluded,
   toggleSchemaExclude,
 } from '../src/features/schema/schemaExclude.ts'
 import { summarize } from '../src/features/schema/schemaView.ts'
@@ -180,4 +181,13 @@ test('넣고 다시 누르면 원래대로 돌아온다', () => {
   assert.equal(applySchemaExclude(TABLES, [], added).excludedRows, 1)
   const back = toggleSchemaExclude(added, 'TB_ORD', 'REG_DTM')
   assert.equal(applySchemaExclude(TABLES, [], back).excludedRows, 0)
+})
+
+test('지금 접혀 있는지 — 이름 그대로 · 테이블 통째 · 글로브 모두 본다', () => {
+  assert.equal(isSchemaExcluded('', 'TB_ORD'), false)
+  assert.equal(isSchemaExcluded('TB_ORD', 'TB_ORD'), true)
+  // 테이블을 통째로 접었으면 그 아래 컬럼도 접힌 것이다
+  assert.equal(isSchemaExcluded('TB_ORD', 'TB_ORD', 'ORD_NO'), true)
+  assert.equal(isSchemaExcluded('*.REG_DTM', 'TB_PAY', 'REG_DTM'), true)
+  assert.equal(isSchemaExcluded('TB_ORD.ORD_MEMO', 'TB_ORD', 'ORD_NO'), false)
 })

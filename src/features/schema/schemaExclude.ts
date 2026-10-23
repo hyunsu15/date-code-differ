@@ -95,6 +95,10 @@ const toPath = (table: string, member?: string): string =>
 export const parseSchemaExclude = (text: string): ExcludeList =>
   ExcludeList.parse(text.split('.').join('/'), DEFAULT_EXCLUDE_SEPARATORS)
 
+/** 이 이름이 지금 목록에 걸려 접혀 있는지 — 넣을지 뺄지, 되돌리기를 할지 가린다 */
+export const isSchemaExcluded = (text: string, table: string, member?: string): boolean =>
+  parseSchemaExclude(text).matches(toPath(table, member)) !== null
+
 /**
  * 이름 하나를 목록에 넣거나 뺀다.
  *

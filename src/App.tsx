@@ -30,6 +30,7 @@ import SettingsPanel from './features/settings/SettingsPanel.tsx'
 import {
   applyLocalExclude,
   loadLocalExclude,
+  parseLocalExclude,
   saveLocalExclude,
   toggleLocalExclude,
 } from './features/settings/localExclude.ts'
@@ -66,7 +67,7 @@ import SummaryCard from './features/summary/SummaryCard.tsx'
 import { shownItems, splitSame } from './lib/changedFirst.ts'
 import { aggregateStats, buildFileDiff } from './lib/diffEngine.ts'
 import { downloadText } from './lib/download.ts'
-import { num } from './lib/format.ts'
+import { num, splitPath } from './lib/format.ts'
 import { searchRows } from './lib/search.ts'
 import { pushToast } from './lib/toast.ts'
 import type {
@@ -276,10 +277,27 @@ export default function App() {
     saveMySchemaExclude(mySchemaExclude)
   }, [mySchemaExclude])
 
-  /** 목록에서 한 번 눌러 접거나 펼친다 */
-  const toggleMyExclude = useCallback((path: string) => {
-    setMyExclude((text) => toggleLocalExclude(text, path))
-  }, [])
+  /**
+   * 목록에서 한 번 눌러 접거나 펼친다.
+   * 접으면 파일이 목록에서 바로 사라지므로 **무엇을 접었는지와 되돌리기**를 알림으로 준다 —
+   * 그러지 않으면 실수로 누른 것을 되돌리려고 작은 "제외" 글자를 찾아 펼쳐야 했다.
+   */
+  const toggleMyExclude = useCallback(
+    (path: string) => {
+      const adding = parseLocalExclude(myExclude).matches(path) === null
+      setMyExclude((text) => toggleLocalExclude(text, path))
+      if (!adding) return
+      pushToast('info', `내 제외 목록에 넣었습니다 — ${splitPath(path).name}`, undefined, {
+        label: '되돌리기',
+        // 그사이 손으로 뺐으면 다시 넣지 않는다 (토글이라 두 번 돌면 도로 들어간다)
+        run: () =>
+          setMyExclude((text) =>
+            parseLocalExclude(text).matches(path) === null ? text : toggleLocalExclude(text, path)
+          ),
+      })
+    },
+    [myExclude]
+  )
 
   useEffect(() => {
     saveDiffOptions(options)
