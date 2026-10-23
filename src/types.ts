@@ -242,6 +242,33 @@ export interface SnapshotListResponse {
 }
 
 /**
+ * 날짜 하나가 **바로 앞 날짜 대비** 얼마나 바뀌었나 (`server/snapshotChanges.ts`).
+ * 파일 단위로 센다 — 무시 옵션(공백·주석)은 적용하지 않고, 팀 제외 목록에 걸린 파일은 뺀다.
+ */
+export interface SnapshotChange {
+  id: string
+  /** 견준 앞 날짜. 가장 오래된 날짜는 견줄 앞이 없어 null (그때는 든 파일 전체가 추가) */
+  base: string | null
+  added: number
+  removed: number
+  modified: number
+}
+
+/** `GET /api/v1/snapshots/changes` 응답 — 순서는 날짜 목록과 같다(최신순) */
+export interface SnapshotChangesResponse {
+  items: SnapshotChange[]
+}
+
+/**
+ * `GET /api/v1/schemas/changes` 응답 — 좌우 환경의 덤프 날짜마다 바로 앞 덤프 대비 **테이블** 변경 수.
+ * 같은 `SnapshotChange` 모양이되 세는 단위가 파일이 아니라 테이블이다 (`server/schemaService.listSchemaChanges`).
+ */
+export interface SchemaChangesResponse {
+  left: SnapshotChange[]
+  right: SnapshotChange[]
+}
+
+/**
  * 제외 목록의 상태.
  *
  * 응답에 함께 실어 화면이 **"왜 이게 안 보이는지"** 를 말할 수 있게 한다.

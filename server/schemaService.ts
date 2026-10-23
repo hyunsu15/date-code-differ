@@ -9,6 +9,7 @@ import {
   type SchemaExcludeInfo,
   type SchemaSnapshot,
   type SchemaSnapshotRef,
+  type SnapshotChange,
 } from '../src/types.ts'
 
 /**
@@ -92,8 +93,12 @@ const joinPath = (...parts: string[]): string =>
  */
 const cache = new Map<string, SchemaSnapshot>()
 
+/** 한 번 센 덤프 쌍 — `${소스} ${폴더} ${환경} ${앞날짜}>${이날짜}` */
+const changeCache = new Map<string, SnapshotChange>()
+
 export function clearSchemaCache(): void {
   cache.clear()
+  changeCache.clear()
 }
 
 /**
@@ -137,6 +142,50 @@ async function readSide(side: SchemaSideRef, cfg: SchemaConfig): Promise<SchemaS
   const parsed = parseSchema(await side.source.readTextFile(file), cfg)
   cache.set(cacheKey, parsed)
   return parsed
+}
+
+/** 견줄 덤프가 놓인 곳 — 날짜만 빠진 `SchemaSideRef` */
+export type SchemaPlace = Omit<SchemaSideRef, 'date'>
+
+/**
+ * 한 환경의 덤프 날짜마다 **바로 앞 덤프 대비** 테이블이 몇 개 추가 · 삭제 · 변경됐는지 센다.
+ * 날짜 고르기 목록의 "테이블 N개 바뀜" · "변경된 날짜만" 에 쓴다 (코드 쪽 `snapshotChanges.ts` 와 짝).
+ *
+ * **테이블 단위**다 — 컬럼·제약·인덱스 중 하나라도 다르면 그 테이블은 변경. 시스템 이름(`SYS_C…`) 제약은
+ * 파서가 이미 접어 두어 세지 않는다(DB 마다 번호가 달라 내용이 같아도 다 바뀐 것으로 보이므로).
+ * 제외 목록·종류 토글은 화면이 얹는 것이라 여기서는 적용하지 않는다.
+ *
+ * 덤프를 하나씩 읽어야 하지만 읽은 덤프와 센 쌍은 캐시에 남는다(⟳ 새로고침이 비운다).
+ * 순서는 날짜 목록과 같다(최신순). 가장 오래된 덤프는 `base: null` 이고 든 테이블 전체를 "추가" 로 센다.
+ */
+export async function listSchemaChanges(place: SchemaPlace, cfg: SchemaConfig): Promise<SnapshotChange[]> {
+  const dates = await listSchemaSnapshots(place.source, place.root, place.env, cfg)
+  const read = (date: string) => readSide({ ...place, date }, cfg)
+
+  const out: SnapshotChange[] = []
+  for (let i = 0; i < dates.length; i++) {
+    const cur = dates[i].id
+    const prev = dates[i + 1]?.id ?? null
+    if (prev === null) {
+      out.push({ id: cur, base: null, added: (await read(cur)).tables.length, removed: 0, modified: 0 })
+      continue
+    }
+
+    const key = `${place.key} ${place.root} ${place.env} ${prev}>${cur}`
+    let counted = changeCache.get(key)
+    if (!counted) {
+      const tables = compareSchemas(await read(prev), await read(cur))
+      counted = { id: cur, base: prev, added: 0, removed: 0, modified: 0 }
+      for (const t of tables) {
+        if (t.status === 'added') counted.added += 1
+        else if (t.status === 'removed') counted.removed += 1
+        else if (t.status === 'modified') counted.modified += 1
+      }
+      changeCache.set(key, counted)
+    }
+    out.push(counted)
+  }
+  return out
 }
 
 /**

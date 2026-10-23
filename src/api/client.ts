@@ -4,8 +4,10 @@ import type {
   ComparisonResponse,
   DiffOptions,
   FileContentResponse,
+  SchemaChangesResponse,
   SchemaComparisonResponse,
   SchemaSnapshotListResponse,
+  SnapshotChangesResponse,
   SnapshotListResponse,
   SourceConfig,
 } from '../types.ts'
@@ -71,6 +73,14 @@ export function fetchSnapshots(
 }
 
 /**
+ * 날짜마다 바로 앞 날짜 대비 변경 수 — 날짜 고르기 목록의 "변경 N개" · "바뀐 날짜만".
+ * 날짜 목록과 따로 묻는다: 로컬은 본문을 읽어야 해서 느릴 수 있는데, 그 때문에 목록이 늦게 뜨면 안 된다.
+ */
+export function fetchSnapshotChanges(source: SourceConfig): Promise<SnapshotChangesResponse> {
+  return getJson<SnapshotChangesResponse>('/snapshots/changes', sourceParams(source))
+}
+
+/**
  * 좌우 스냅샷 비교 — 패키지 요약 + 파일 목록 (본문 없음).
  * 좌우는 **서로 다른 위치**일 수 있다 (운영 ↔ 테스트).
  */
@@ -102,6 +112,22 @@ export function fetchSchemaSnapshots(
   rightEnv: string
 ): Promise<SchemaSnapshotListResponse> {
   return getJson<SchemaSnapshotListResponse>('/schemas/snapshots', {
+    ...sourceParams(source),
+    leftEnv,
+    rightEnv,
+  })
+}
+
+/**
+ * 좌우 환경의 덤프 날짜마다 바로 앞 덤프 대비 **테이블** 변경 수 — 스키마 탭 날짜 목록의 "테이블 N개 바뀜".
+ * 날짜 목록과 따로 묻는다(덤프를 하나씩 읽어야 해서 느릴 수 있다).
+ */
+export function fetchSchemaChanges(
+  source: SourceConfig,
+  leftEnv: string,
+  rightEnv: string
+): Promise<SchemaChangesResponse> {
+  return getJson<SchemaChangesResponse>('/schemas/changes', {
     ...sourceParams(source),
     leftEnv,
     rightEnv,

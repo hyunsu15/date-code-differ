@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { parseUrl, queryFlag, requiredParam, sendError, sendJson } from './http.ts'
 import { clearCache, listSnapshots, type RepositoryConfig } from './snapshotRepository.ts'
+import { clearChangeCache, listSnapshotChanges } from './snapshotChanges.ts'
 import {
   clearComparisonCache,
   compareSnapshots,
@@ -10,6 +11,7 @@ import {
 import { clearExcludeCache, loadExcludeList } from './excludeRules.ts'
 import {
   clearSchemaCache,
+  listSchemaChanges,
   compareSchemaSnapshots,
   listSchemaSnapshots,
   type SchemaSideRef,
@@ -19,6 +21,8 @@ import { SourceError, type SnapshotSource } from './source/types.ts'
 import type {
   DiffOptions,
   SchemaSnapshotListResponse,
+  SchemaChangesResponse,
+  SnapshotChangesResponse,
   SnapshotListResponse,
   SourceConfig,
   TextEncodingName,
@@ -30,6 +34,8 @@ import type {
  * 설정을 브라우저(localStorage)가 들고 있으므로 서버는 상태를 두지 않는다.
  *
  *   GET /api/v1/snapshots[?refresh=1][&소스 파라미터]
+ *   GET /api/v1/snapshots/changes[&소스 파라미터]          날짜마다 바로 앞 날짜 대비 변경 수
+ *   GET /api/v1/schemas/changes?leftEnv=&rightEnv=[&소스 파라미터]  덤프마다 바로 앞 덤프 대비 테이블 변경 수
  *   GET /api/v1/comparisons?left=&right=[&rightRoot=][&무시옵션][&소스 파라미터]
  *   GET /api/v1/comparisons/files?left=&right=&path=[&rightRoot=][&소스 파라미터]
  *
@@ -195,6 +201,7 @@ export function createHandler(cfg: RepositoryConfig, projectRoot: string): ApiHa
             // 제외 규칙 파일도 다시 읽는다 — 새로고침은 "지금 상태로 맞춰라" 라는 뜻이다
             clearExcludeCache()
             clearSchemaCache()
+            clearChangeCache()
           }
           const resolved = resolve()
           if (!resolved) return
@@ -202,6 +209,45 @@ export function createHandler(cfg: RepositoryConfig, projectRoot: string): ApiHa
           const body: SnapshotListResponse = {
             root: resolved.source.describe(),
             items: await listSnapshots(resolved.source, cfg, resolved.key),
+          }
+          sendJson(res, 200, body)
+          return
+        }
+
+        if (pathname === '/snapshots/changes') {
+          const resolved = resolve()
+          if (!resolved) return
+          // 팀 제외 목록에 걸린 파일은 세지 않는다 — 늘 바뀌는 임시 파일로 모든 날짜가 "변경" 이 되지 않게
+          const exclude = await loadExcludeList(
+            resolved.source,
+            resolved.key,
+            readSourceConfig(query).excludeFile,
+            cfg.excludeSeparators
+          )
+          const body: SnapshotChangesResponse = {
+            items: await listSnapshotChanges(resolved.source, cfg, resolved.key, exclude.list),
+          }
+          sendJson(res, 200, body)
+          return
+        }
+
+        if (pathname === '/schemas/changes') {
+          const resolved = resolve()
+          if (!resolved) return
+
+          const place = {
+            source: resolved.source,
+            key: resolved.key,
+            root: (readSourceConfig(query).schemaRoot ?? '').trim(),
+          }
+          const leftEnv = query.get('leftEnv') ?? ''
+          const rightEnv = query.get('rightEnv') ?? ''
+
+          // 좌우가 같은 환경이면 한 번만 센다 (`/schemas/snapshots` 와 같은 이유)
+          const left = await listSchemaChanges({ ...place, env: leftEnv }, cfg.schema)
+          const body: SchemaChangesResponse = {
+            left,
+            right: leftEnv === rightEnv ? left : await listSchemaChanges({ ...place, env: rightEnv }, cfg.schema),
           }
           sendJson(res, 200, body)
           return
