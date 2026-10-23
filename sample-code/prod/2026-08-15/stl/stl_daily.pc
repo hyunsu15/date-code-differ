@@ -1,0 +1,101 @@
+/******************************************************************
+ * 프로그램명 : stl_daily.pc
+ * 기      능 : 일일 정산 배치
+ * 작   성   일: 2026-07-18
+ ******************************************************************/
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include "stl_common.h"
+
+EXEC SQL INCLUDE SQLCA;
+
+EXEC SQL BEGIN DECLARE SECTION;
+    char   h_base_dt[9];
+    char   h_acct_no[12];
+    double h_buy_amt;
+    double h_sel_amt;
+    double h_fee_amt;
+    double h_net_amt;
+EXEC SQL END DECLARE SECTION;
+
+/* 수수료 계산 */
+static double calc_fee(double amt)
+{
+    double fee = amt * FEE_RATE;
+    if (fee < MIN_FEE) fee = MIN_FEE;
+    return fee;
+}
+
+/* 계좌별 일일 정산 */
+static int settle_account(char *base_dt, char *acct_no)
+{
+    EXEC SQL
+        SELECT NVL(SUM(DECODE(ORD_TP, '1', EXEC_AMT, 0)), 0),
+               NVL(SUM(DECODE(ORD_TP, '2', EXEC_AMT, 0)), 0)
+          INTO :h_buy_amt, :h_sel_amt
+          FROM TB_EXEC
+         WHERE ACCT_NO = :acct_no
+           AND EXEC_DT = :base_dt;
+
+    if (sqlca.sqlcode != 0 && sqlca.sqlcode != 1403) return ERR_DB;
+
+    h_fee_amt = calc_fee(h_buy_amt + h_sel_amt);
+    h_net_amt = h_sel_amt - h_buy_amt - h_fee_amt;
+
+    EXEC SQL
+        INSERT INTO TB_STL_DAILY (
+            BASE_DT, ACCT_NO, BUY_AMT, SEL_AMT, FEE_AMT, NET_AMT, REG_DTM
+        ) VALUES (
+            :base_dt, :acct_no, :h_buy_amt, :h_sel_amt, :h_fee_amt, :h_net_amt,
+            TO_CHAR(SYSDATE, 'YYYYMMDDHH24MISS')
+        );
+
+    if (sqlca.sqlcode != 0) return ERR_DB;
+
+    return RC_OK;
+}
+
+/* 정산 배치 메인 */
+int main(int argc, char *argv[])
+{
+    int rc;
+    int cnt = 0;
+
+    if (argc < 2) {
+        fprintf(stderr, "usage: stl_daily YYYYMMDD\n");
+        return 1;
+    }
+    strcpy(h_base_dt, argv[1]);
+
+    EXEC SQL DECLARE cur_acct CURSOR FOR
+        SELECT DISTINCT ACCT_NO
+          FROM TB_EXEC
+         WHERE EXEC_DT = :h_base_dt;
+
+    EXEC SQL OPEN cur_acct;
+
+    for (;;) {
+        EXEC SQL FETCH cur_acct INTO :h_acct_no;
+        if (sqlca.sqlcode == 1403) break;
+        if (sqlca.sqlcode != 0) {
+            EXEC SQL CLOSE cur_acct;
+            EXEC SQL ROLLBACK;
+            return ERR_DB;
+        }
+
+        rc = settle_account(h_base_dt, h_acct_no);
+        if (rc != RC_OK) {
+            EXEC SQL CLOSE cur_acct;
+            EXEC SQL ROLLBACK;
+            return rc;
+        }
+        cnt++;
+    }
+
+    EXEC SQL CLOSE cur_acct;
+    EXEC SQL COMMIT;
+
+    printf("settled %d accounts for %s\n", cnt, h_base_dt);
+    return RC_OK;
+}

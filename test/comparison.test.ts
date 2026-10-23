@@ -1,4 +1,5 @@
 import { test } from 'node:test'
+import { clearChangeCache, listSnapshotChanges } from '../server/snapshotChanges.ts'
 import assert from 'node:assert/strict'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -63,17 +64,30 @@ test('스냅샷 목록은 최신 날짜가 위로 온다', async () => {
   const items = await listSnapshots(source, cfg, key)
   assert.deepEqual(
     items.map((s) => s.id),
-    ['2026-09-01', '2026-08-01', '2026-07-01', '2026-06-01']
+    // 07-15 · 08-15 · 09-05 는 배포가 없던 날 — 앞 배포일 폴더를 그대로 복사해 둔 예시다
+    ['2026-09-05', '2026-09-01', '2026-08-15', '2026-08-01', '2026-07-15', '2026-07-01', '2026-06-01']
   )
 })
 
 test('스냅샷마다 파일 수·패키지 수를 센다', async () => {
   const items = await listSnapshots(source, cfg, key)
-  const latest = items[0]
-  assert.equal(latest.id, '2026-09-01')
-  assert.equal(latest.fileCount, 14)
-  assert.equal(latest.packageCount, 4) // ord, pay, rpt, stl (cmm 은 이 시점에 없어졌다)
-  assert.equal(latest.sortKey, '20260901')
+  const deploy = items.find((s) => s.id === '2026-09-01')
+  assert.ok(deploy)
+  assert.equal(deploy.fileCount, 14)
+  assert.equal(deploy.packageCount, 4) // ord, pay, rpt, stl (cmm 은 이 시점에 없어졌다)
+  assert.equal(deploy.sortKey, '20260901')
+})
+
+test('예시 폴더의 배포 없던 날은 앞 배포일과 똑같다 — 날짜별 변경 수가 0, 진짜 배포일만 바뀜', async () => {
+  clearChangeCache()
+  const changes = await listSnapshotChanges(source, cfg, key, ExcludeList.EMPTY)
+  const total = (id: string) => {
+    const c = changes.find((x) => x.id === id)
+    assert.ok(c, id)
+    return c.added + c.removed + c.modified
+  }
+  for (const quiet of ['2026-09-05', '2026-08-15', '2026-07-15']) assert.equal(total(quiet), 0, quiet)
+  for (const deploy of ['2026-09-01', '2026-08-01', '2026-07-01']) assert.ok(total(deploy) > 0, deploy)
 })
 
 test('잘못된 스냅샷 id 는 빈 결과 — 폴더 밖으로 나가지 않는다', async () => {

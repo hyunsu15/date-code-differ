@@ -1,0 +1,145 @@
+/******************************************************************
+ * 프로그램명 : ord_create.pc
+ * 기      능 : 주식 매수/매도 주문 접수
+ * 작   성   일: 2026-05-12
+ * 변   경   일: 2026-06-24  미수금 한도 검증 추가
+ * 변   경   일: 2026-07-22  주문 로그 기록 추가
+ ******************************************************************/
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include "ord_common.h"
+#include "cmm_log.h"
+
+EXEC SQL INCLUDE SQLCA;
+
+EXEC SQL BEGIN DECLARE SECTION;
+    char    h_acct_no[12];
+    char    h_isin_cd[13];
+    long    h_ord_qty;
+    double  h_ord_prc;
+    char    h_ord_tp[2];
+    char    h_ord_no[11];
+    char    h_reg_dtm[15];
+    double  h_credit_lmt;
+EXEC SQL END DECLARE SECTION;
+
+/* 주문 수량 유효성 검사 */
+static int chk_ord_qty(long qty)
+{
+    if (qty <= 0) return ERR_QTY_RANGE;
+    if (qty > MAX_ORD_QTY) return ERR_QTY_RANGE;
+    if (qty % ORD_QTY_UNIT != 0) return ERR_QTY_UNIT;
+    return RC_OK;
+}
+
+/* 주문 가격 유효성 검사 */
+static int chk_ord_prc(double prc, const char *ord_tp)
+{
+    if (prc < 0) return ERR_PRC_RANGE;
+    /* 시장가(02) 는 가격을 0 으로만 보낼 수 있다 */
+    if (strcmp(ord_tp, "2") == 0 && prc != 0) return ERR_PRC_RANGE;
+    return RC_OK;
+}
+
+/* 계좌 잔고 조회 */
+static int get_balance(char *acct_no, double *balance)
+{
+    EXEC SQL
+        SELECT NVL(DEPO_AMT, 0)
+          INTO :*balance
+          FROM TB_ACCT_BAL
+         WHERE ACCT_NO = :acct_no;
+
+    if (sqlca.sqlcode == 1403) return ERR_NO_ACCT;
+    if (sqlca.sqlcode != 0)    return ERR_DB;
+
+    return RC_OK;
+}
+
+/* 미수 한도 조회 — 2026-06-24 신규 */
+static int get_credit_limit(char *acct_no, double *limit)
+{
+    EXEC SQL
+        SELECT NVL(CREDIT_LMT, 0)
+          INTO :*limit
+          FROM TB_ACCT_CREDIT
+         WHERE ACCT_NO = :acct_no;
+
+    if (sqlca.sqlcode == 1403) {
+        *limit = 0;
+        return RC_OK;
+    }
+    if (sqlca.sqlcode != 0) return ERR_DB;
+
+    return RC_OK;
+}
+
+/* 주문번호 채번 */
+static int gen_ord_no(char *ord_no)
+{
+    EXEC SQL
+        SELECT LPAD(SQ_ORD_NO.NEXTVAL, 10, '0')
+          INTO :ord_no
+          FROM DUAL;
+
+    if (sqlca.sqlcode != 0) return ERR_DB;
+    return RC_OK;
+}
+
+/* 주문 등록 메인 */
+int ord_create(ORD_REQ *req, ORD_RES *res)
+{
+    int    rc;
+    double balance = 0;
+    double ord_amt = 0;
+
+    strcpy(h_acct_no, req->acct_no);
+    strcpy(h_isin_cd, req->isin_cd);
+    strcpy(h_ord_tp,  req->ord_tp);
+    h_ord_qty = req->ord_qty;
+    h_ord_prc = req->ord_prc;
+
+    rc = chk_ord_qty(h_ord_qty);
+    if (rc != RC_OK) return rc;
+
+    rc = chk_ord_prc(h_ord_prc, h_ord_tp);
+    if (rc != RC_OK) return rc;
+
+    rc = get_balance(h_acct_no, &balance);
+    if (rc != RC_OK) return rc;
+
+    rc = get_credit_limit(h_acct_no, &h_credit_lmt);
+    if (rc != RC_OK) return rc;
+
+    ord_amt = (double)h_ord_qty * h_ord_prc;
+    if (balance + h_credit_lmt < ord_amt) {
+        log_write("WARN", "insufficient balance");
+        return ERR_NO_BALANCE;
+    }
+
+    rc = gen_ord_no(h_ord_no);
+    if (rc != RC_OK) return rc;
+
+    EXEC SQL
+        INSERT INTO TB_ORD (
+            ORD_NO, ACCT_NO, ISIN_CD, ORD_TP, ORD_QTY, ORD_PRC, ORD_STAT, REG_DTM
+        ) VALUES (
+            :h_ord_no, :h_acct_no, :h_isin_cd, :h_ord_tp, :h_ord_qty, :h_ord_prc,
+            'RCV', TO_CHAR(SYSDATE, 'YYYYMMDDHH24MISS')
+        );
+
+    if (sqlca.sqlcode != 0) {
+        log_write("ERROR", "TB_ORD insert failed");
+        EXEC SQL ROLLBACK;
+        return ERR_DB;
+    }
+
+    EXEC SQL COMMIT;
+
+    log_write("INFO", h_ord_no);
+
+    strcpy(res->ord_no, h_ord_no);
+    res->rc = RC_OK;
+    return RC_OK;
+}

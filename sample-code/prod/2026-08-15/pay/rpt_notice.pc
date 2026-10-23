@@ -1,0 +1,52 @@
+/******************************************************************
+ * 프로그램명 : rpt_notice.pc
+ * 기      능 : 고객 공지 발송 대상 조회
+ * 작   성   일: 2026-07-30
+ *
+ * ※ 이 파일은 EUC-KR 로 저장돼 있다.
+ *    UNIX 에서 오래 관리된 Pro*C 소스가 대개 이 형태다.
+ ******************************************************************/
+#include <stdio.h>
+#include <string.h>
+#include "pay_common.h"
+
+EXEC SQL INCLUDE SQLCA;
+
+EXEC SQL BEGIN DECLARE SECTION;
+    char h_base_dt[9];
+    char h_acct_no[12];
+    char h_notice_cd[5];
+EXEC SQL END DECLARE SECTION;
+
+/* 공지 대상 계좌 조회 */
+int rpt_notice(const char *base_dt)
+{
+    long cnt = 0;
+
+    strcpy(h_base_dt, base_dt);
+
+    EXEC SQL DECLARE cur_notice CURSOR FOR
+        SELECT ACCT_NO, NOTICE_CD
+          FROM TB_NOTICE_TARGET
+         WHERE BASE_DT = :h_base_dt
+           AND SEND_YN = 'N';
+
+    EXEC SQL OPEN cur_notice;
+
+    for (;;) {
+        EXEC SQL FETCH cur_notice INTO :h_acct_no, :h_notice_cd;
+        if (sqlca.sqlcode == 1403) break;   /* 더 이상 대상 없음 */
+        if (sqlca.sqlcode != 0) {
+            EXEC SQL CLOSE cur_notice;
+            return ERR_DB;                  /* 조회 실패 */
+        }
+
+        printf("%-12s %s\n", h_acct_no, h_notice_cd);
+        cnt++;
+    }
+
+    EXEC SQL CLOSE cur_notice;
+
+    printf("공지 대상 %ld 건\n", cnt);
+    return RC_OK;
+}

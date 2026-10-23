@@ -1,0 +1,65 @@
+/******************************************************************
+ * 프로그램명 : ord_cancel.pc
+ * 기      능 : 접수된 주문 취소
+ * 작   성   일: 2026-05-12
+ ******************************************************************/
+#include <stdio.h>
+#include <string.h>
+#include "ord_common.h"
+
+EXEC SQL INCLUDE SQLCA;
+
+EXEC SQL BEGIN DECLARE SECTION;
+    char h_ord_no[11];
+    char h_acct_no[12];
+    char h_ord_stat[4];
+EXEC SQL END DECLARE SECTION;
+
+/* 주문 상태 조회 */
+static int get_ord_stat(char *ord_no, char *stat)
+{
+    EXEC SQL
+        SELECT ORD_STAT
+          INTO :stat
+          FROM TB_ORD
+         WHERE ORD_NO = :ord_no;
+
+    if (sqlca.sqlcode == 1403) return ERR_NO_ORD;
+    if (sqlca.sqlcode != 0)    return ERR_DB;
+
+    return RC_OK;
+}
+
+/* 주문 취소 메인 */
+int ord_cancel(ORD_CANCEL_REQ *req, ORD_RES *res)
+{
+    int rc;
+
+    strcpy(h_ord_no,  req->ord_no);
+    strcpy(h_acct_no, req->acct_no);
+
+    rc = get_ord_stat(h_ord_no, h_ord_stat);
+    if (rc != RC_OK) return rc;
+
+    if (strcmp(h_ord_stat, "RCV") != 0) {
+        return ERR_NOT_CANCELABLE;
+    }
+
+    EXEC SQL
+        UPDATE TB_ORD
+           SET ORD_STAT = 'CNL',
+               CNL_DTM  = TO_CHAR(SYSDATE, 'YYYYMMDDHH24MISS')
+         WHERE ORD_NO  = :h_ord_no
+           AND ACCT_NO = :h_acct_no;
+
+    if (sqlca.sqlcode != 0) {
+        EXEC SQL ROLLBACK;
+        return ERR_DB;
+    }
+
+    EXEC SQL COMMIT;
+
+    strcpy(res->ord_no, h_ord_no);
+    res->rc = RC_OK;
+    return RC_OK;
+}

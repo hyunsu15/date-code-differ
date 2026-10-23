@@ -1,0 +1,87 @@
+/******************************************************************
+ * 프로그램명 : pay_approve.pc
+ * 기      능 : 결제 승인 요청 처리
+ * 작   성   일: 2026-05-20
+ * 변   경   일: 2026-06-28  일일 한도 검증 추가
+ ******************************************************************/
+#include <stdio.h>
+#include <string.h>
+#include "pay_common.h"
+
+EXEC SQL INCLUDE SQLCA;
+
+EXEC SQL BEGIN DECLARE SECTION;
+    char   h_pay_no[11];
+    char   h_acct_no[12];
+    double h_pay_amt;
+    double h_day_sum;
+    char   h_pay_stat[4];
+EXEC SQL END DECLARE SECTION;
+
+/* 결제 금액 검증 */
+static int chk_pay_amt(double amt)
+{
+    if (amt <= 0)          return ERR_PAY_AMT;
+    if (amt > MAX_PAY_AMT) return ERR_PAY_AMT;
+    return RC_OK;
+}
+
+/* 당일 누적 결제금액 조회 — 2026-06-28 신규 */
+static int get_day_sum(char *acct_no, double *sum)
+{
+    EXEC SQL
+        SELECT NVL(SUM(PAY_AMT), 0)
+          INTO :*sum
+          FROM TB_PAY
+         WHERE ACCT_NO  = :acct_no
+           AND PAY_STAT = 'APR'
+           AND SUBSTR(REG_DTM, 1, 8) = TO_CHAR(SYSDATE, 'YYYYMMDD');
+
+    if (sqlca.sqlcode != 0 && sqlca.sqlcode != 1403) return ERR_DB;
+    return RC_OK;
+}
+
+/* 결제 승인 */
+int pay_approve(PAY_REQ *req, PAY_RES *res)
+{
+    int rc;
+
+    strcpy(h_acct_no, req->acct_no);
+    h_pay_amt = req->pay_amt;
+
+    rc = chk_pay_amt(h_pay_amt);
+    if (rc != RC_OK) return rc;
+
+    rc = get_day_sum(h_acct_no, &h_day_sum);
+    if (rc != RC_OK) return rc;
+
+    if (h_day_sum + h_pay_amt > MAX_DAY_PAY_AMT) {
+        return ERR_DAY_LIMIT;
+    }
+
+    EXEC SQL
+        SELECT LPAD(SQ_PAY_NO.NEXTVAL, 10, '0')
+          INTO :h_pay_no
+          FROM DUAL;
+
+    if (sqlca.sqlcode != 0) return ERR_DB;
+
+    EXEC SQL
+        INSERT INTO TB_PAY (
+            PAY_NO, ACCT_NO, PAY_AMT, PAY_STAT, REG_DTM
+        ) VALUES (
+            :h_pay_no, :h_acct_no, :h_pay_amt, 'APR',
+            TO_CHAR(SYSDATE, 'YYYYMMDDHH24MISS')
+        );
+
+    if (sqlca.sqlcode != 0) {
+        EXEC SQL ROLLBACK;
+        return ERR_DB;
+    }
+
+    EXEC SQL COMMIT;
+
+    strcpy(res->pay_no, h_pay_no);
+    res->rc = RC_OK;
+    return RC_OK;
+}

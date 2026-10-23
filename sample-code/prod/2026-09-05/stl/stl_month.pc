@@ -1,0 +1,49 @@
+/******************************************************************
+ * 프로그램명 : stl_month.pc
+ * 기      능 : 월간 정산 집계
+ * 작   성   일: 2026-07-18
+ ******************************************************************/
+#include <stdio.h>
+#include <string.h>
+#include "stl_common.h"
+
+EXEC SQL INCLUDE SQLCA;
+
+EXEC SQL BEGIN DECLARE SECTION;
+    char h_base_ym[7];
+EXEC SQL END DECLARE SECTION;
+
+/* 월간 집계 메인 */
+int main(int argc, char *argv[])
+{
+    if (argc < 2) {
+        fprintf(stderr, "usage: stl_month YYYYMM\n");
+        return 1;
+    }
+    strcpy(h_base_ym, argv[1]);
+
+    EXEC SQL
+        INSERT INTO TB_STL_MONTH (
+            BASE_YM, ACCT_NO, BUY_AMT, SEL_AMT, FEE_AMT, NET_AMT, REG_DTM
+        )
+        SELECT SUBSTR(BASE_DT, 1, 6),
+               ACCT_NO,
+               SUM(BUY_AMT),
+               SUM(SEL_AMT),
+               SUM(FEE_AMT),
+               SUM(NET_AMT),
+               TO_CHAR(SYSDATE, 'YYYYMMDDHH24MISS')
+          FROM TB_STL_DAILY
+         WHERE SUBSTR(BASE_DT, 1, 6) = :h_base_ym
+         GROUP BY SUBSTR(BASE_DT, 1, 6), ACCT_NO;
+
+    if (sqlca.sqlcode != 0) {
+        EXEC SQL ROLLBACK;
+        return ERR_DB;
+    }
+
+    EXEC SQL COMMIT;
+
+    printf("month settled: %s\n", h_base_ym);
+    return RC_OK;
+}
