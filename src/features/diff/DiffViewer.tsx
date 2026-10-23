@@ -1,4 +1,5 @@
 import {
+  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -529,6 +530,26 @@ export default function DiffViewer({
     []
   )
 
+  /**
+   * 펼쳐 둔 구간을 다시 접는다 — 펴기와 짝.
+   *
+   * 아래쪽 줄에서 접으면 그 위 수십 줄이 한꺼번에 사라져 보던 자리를 잃는다. 그때는 접힌 줄이
+   * 화면 가운데 오도록 옮긴다(동기 스크롤이면 반대쪽도 따라온다). 위쪽 줄에서 접으면 그 자리가
+   * 그대로라 옮기지 않는다.
+   */
+  const collapseGap = useCallback((from: number, origin: HTMLElement, fromBottom: boolean): void => {
+    const scroller = origin.closest('.pane, .diff-scroll')
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      next.delete(from)
+      return next
+    })
+    if (!fromBottom) return
+    requestAnimationFrame(() => {
+      scroller?.querySelector(`[data-gap="${from}"]`)?.scrollIntoView({ block: 'center' })
+    })
+  }, [])
+
   if (diff.tooLarge) {
     return (
       <div className="empty">
@@ -548,15 +569,21 @@ export default function DiffViewer({
             block.kind === 'gap' ? (
               <GapButton key={`g${block.from}`} block={block} onExpand={expandGap} />
             ) : (
-              renderUnified(block, rows, {
-                aSegs,
-                bSegs,
-                currentHunk,
-                hunkOfRow,
-                hunkStartAt,
-                searchByRow,
-                activeMatch,
-              })
+              <Fragment key={`r${block.from}`}>
+                {block.opened && <FoldBar block={block} onCollapse={collapseGap} />}
+                {renderUnified(block, rows, {
+                  aSegs,
+                  bSegs,
+                  currentHunk,
+                  hunkOfRow,
+                  hunkStartAt,
+                  searchByRow,
+                  activeMatch,
+                })}
+                {block.opened && isLong(block) && (
+                  <FoldBar block={block} onCollapse={collapseGap} bottom />
+                )}
+              </Fragment>
             )
           )}
           {rows.length === 0 && (
@@ -576,6 +603,7 @@ export default function DiffViewer({
     hunkOfRow,
     hunkStartAt,
     onExpand: expandGap,
+    onCollapse: collapseGap,
     searchByRow,
     activeMatch,
   }
@@ -628,9 +656,40 @@ interface GapButtonProps {
 
 function GapButton({ block, onExpand }: GapButtonProps) {
   return (
-    <button className="gap" onClick={() => onExpand(block.from)}>
-      <span>⋯</span>
+    <button className="gap" data-gap={block.from} onClick={() => onExpand(block.from)}>
+      <span>▾</span>
       <span>동일한 {block.to - block.from + 1}줄 접힘 — 클릭하면 펼칩니다</span>
+    </button>
+  )
+}
+
+/** 이보다 긴 구간은 펼쳤을 때 **아래에도** 접기 줄을 단다 — 위로 한참 올라가지 않아도 접게 */
+const LONG_OPENED = 30
+
+const isLong = (block: RenderBlock): boolean => block.to - block.from + 1 > LONG_OPENED
+
+interface FoldBarProps {
+  block: RenderBlock
+  onCollapse: (from: number, origin: HTMLElement, fromBottom: boolean) => void
+  /** 구간 아래쪽 줄인가 */
+  bottom?: boolean
+}
+
+/**
+ * 펼쳐 둔 구간의 **다시 접기** 줄 — 접힘 줄(`GapButton`)이 있던 자리에 같은 모양으로 둔다.
+ * 펴고 접는 자리가 같아야 "눌렀던 데를 다시 누르면 된다" 로 바로 읽힌다.
+ */
+function FoldBar({ block, onCollapse, bottom = false }: FoldBarProps) {
+  const n = block.to - block.from + 1
+  return (
+    <button
+      className={cx('gap', 'opened', bottom && 'bottom')}
+      onClick={(e) => onCollapse(block.from, e.currentTarget, bottom)}
+    >
+      <span>▴</span>
+      <span>
+        동일한 {n}줄 {bottom ? '여기까지' : '펼침'} — 클릭하면 다시 접습니다
+      </span>
     </button>
   )
 }
@@ -645,6 +704,7 @@ interface PaneProps {
   hunkOfRow: Map<number, number>
   hunkStartAt: Map<number, number>
   onExpand: (from: number) => void
+  onCollapse: (from: number, origin: HTMLElement, fromBottom: boolean) => void
   searchByRow: Map<number, RowMatches>
   activeMatch: CodeMatch | null
 }
@@ -659,6 +719,7 @@ function Pane({
   hunkOfRow,
   hunkStartAt,
   onExpand,
+  onCollapse,
   searchByRow,
   activeMatch,
 }: PaneProps) {
@@ -669,6 +730,10 @@ function Pane({
           return <GapButton key={`g${block.from}`} block={block} onExpand={onExpand} />
         }
         const out: ReactNode[] = []
+        // 좌우 두 판이 같은 자리에 같은 줄을 달아야 줄 높이가 어긋나지 않는다
+        if (block.opened) {
+          out.push(<FoldBar key={`f${block.from}`} block={block} onCollapse={onCollapse} />)
+        }
         for (let i = block.from; i <= block.to; i++) {
           const row = rows[i]
           if (!row) continue
@@ -685,6 +750,9 @@ function Pane({
               hunkStart={hunkStartAt.get(i)}
             />
           )
+        }
+        if (block.opened && isLong(block)) {
+          out.push(<FoldBar key={`fb${block.from}`} block={block} onCollapse={onCollapse} bottom />)
         }
         return out
       })}

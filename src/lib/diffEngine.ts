@@ -405,7 +405,9 @@ export function buildBlocks(
       while (i < rows.length && !visible[i]) i++
       const to = i - 1
       // 짧은 구간은 접어도 이득이 없으니 그냥 보여준다
-      if (to - from + 1 <= 4 || expandedGaps.has(from)) blocks.push({ kind: 'rows', from, to })
+      if (to - from + 1 <= 4) blocks.push({ kind: 'rows', from, to })
+      // 펼쳐 둔 구간은 표시해 둔다 — 화면이 그 자리에 "다시 접기" 를 단다
+      else if (expandedGaps.has(from)) blocks.push({ kind: 'rows', from, to, opened: true })
       else blocks.push({ kind: 'gap', from, to })
     }
   }

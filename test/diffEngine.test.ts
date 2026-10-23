@@ -448,6 +448,29 @@ test('접기 펼치면 해당 구간이 rows 로 바뀜', () => {
   assert.equal(after.filter((x) => x.kind === 'gap').length, 1)
 })
 
+test('펼친 구간은 opened 로 표시된다 — 화면이 그 자리에 "다시 접기" 를 단다', () => {
+  const a = Array.from({ length: 60 }, (_, i) => `line ${i}`).join('\n')
+  const b = a.replace('line 30', 'CHANGED')
+  const { rows } = buildFileDiff(a, b, O())
+  const first = buildBlocks(rows, 3, new Set()).find((x) => x.kind === 'gap')
+  assert.ok(first)
+
+  const opened = buildBlocks(rows, 3, new Set([first.from])).find((x) => x.from === first.from)
+  assert.deepEqual(opened, { kind: 'rows', from: first.from, to: first.to, opened: true })
+
+  // 펼친 표시를 지우면(다시 접기) 원래 접힌 구간으로 돌아온다
+  const closed = buildBlocks(rows, 3, new Set()).find((x) => x.from === first.from)
+  assert.deepEqual(closed, first)
+})
+
+test('원래 보이던 구간(변경 근처·짧은 구간)에는 opened 가 붙지 않는다 — 접을 것이 아니다', () => {
+  const a = Array.from({ length: 60 }, (_, i) => `line ${i}`).join('\n')
+  const b = a.replace('line 30', 'CHANGED')
+  const { rows } = buildFileDiff(a, b, O())
+  const blocks = buildBlocks(rows, 3, new Set())
+  assert.ok(blocks.filter((x) => x.kind === 'rows').every((x) => !x.opened))
+})
+
 test('문맥 -1 이면 전부 보임', () => {
   const a = Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\n')
   const b = a.replace('line 10', 'X')
