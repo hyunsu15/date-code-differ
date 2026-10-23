@@ -14,6 +14,12 @@
 
 export type ToastKind = 'error' | 'warn' | 'info'
 
+/** 알림 안의 버튼 하나 — 방금 한 일을 되돌리는 것처럼, 알림을 본 자리에서 바로 할 일 */
+export interface ToastAction {
+  label: string
+  run: () => void
+}
+
 export interface Toast {
   id: number
   kind: ToastKind
@@ -21,6 +27,8 @@ export interface Toast {
   title: string
   /** 원문 오류·못 읽은 줄 등. 여러 줄이어도 된다 */
   detail?: string
+  /** 누르면 실행하고 알림을 닫는다 */
+  action?: ToastAction
 }
 
 /** 정보성 알림이 저절로 접히기까지 (ms). 오류·경고는 접히지 않는다 */
@@ -57,6 +65,14 @@ export function dismissToast(id: number): void {
   emit()
 }
 
+/** 알림의 버튼을 누른 것 — 실행하고 닫는다. 이미 닫힌 알림이면 아무것도 하지 않는다 */
+export function runToastAction(id: number): void {
+  const toast = items.find((t) => t.id === id)
+  if (!toast?.action) return
+  dismissToast(id)
+  toast.action.run()
+}
+
 export function clearToasts(): void {
   for (const timer of timers.values()) clearTimeout(timer)
   timers.clear()
@@ -73,12 +89,17 @@ export function clearToasts(): void {
  *
  * @returns 띄운(또는 이미 떠 있던) 알림의 id
  */
-export function pushToast(kind: ToastKind, title: string, detail?: string): number {
+export function pushToast(
+  kind: ToastKind,
+  title: string,
+  detail?: string,
+  action?: ToastAction
+): number {
   const existing = items.find((t) => t.kind === kind && t.title === title && t.detail === detail)
   if (existing) return existing.id
 
   sequence += 1
-  const toast: Toast = { id: sequence, kind, title, detail }
+  const toast: Toast = { id: sequence, kind, title, detail, action }
   items = [...items, toast]
   emit()
 

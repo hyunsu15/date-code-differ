@@ -1,5 +1,11 @@
 import { useSyncExternalStore } from 'react'
-import { dismissToast, getToasts, subscribeToasts, type Toast } from '../../lib/toast.ts'
+import {
+  dismissToast,
+  getToasts,
+  runToastAction,
+  subscribeToasts,
+  type Toast,
+} from '../../lib/toast.ts'
 
 const ICON: Record<Toast['kind'], string> = {
   error: '⚠',
@@ -29,6 +35,12 @@ export default function Toasts() {
             <b className="title">{toast.title}</b>
             {toast.detail && <div className="detail">{toast.detail}</div>}
           </div>
+
+          {toast.action && (
+            <button type="button" className="btn sm toast-action" onClick={() => runToastAction(toast.id)}>
+              {toast.action.label}
+            </button>
+          )}
 
           <button
             type="button"

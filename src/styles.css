@@ -2023,6 +2023,9 @@ button, input, select, textarea { font-family: inherit; font-size: inherit; colo
 
 .toast .close:hover { color: var(--text); background: var(--surface-2); }
 
+/* 알림 안의 실행 버튼 (되돌리기 등) — 닫기 옆, 눈에 띄게 */
+.toast .toast-action { flex-shrink: 0; align-self: center; color: var(--accent); font-weight: 600; }
+
 /* ================================================================
    내 제외 목록 — 목록에서 바로 접기
 
