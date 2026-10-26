@@ -144,6 +144,41 @@ export function lastWeekSelection(
 }
 
 /**
+ * 사람이 날짜를 **어떻게** 골랐나 — 환경(위치)을 바꿔 목록을 새로 읽을 때 다시 적용한다.
+ *
+ * - `auto` — 고른 적 없음. 기본값(같은 환경이면 최근 변경, 다르면 양쪽 최신)을 쓴다.
+ * - `manual` — 칸에 입력했거나 목록에서 골랐다. 그 두 날짜를 기억한다.
+ * - `lastWeek` — 지난주 버튼. 날짜가 아니라 "지난주" 를 기억한다 — 환경마다 그 주의 날짜 폴더가 다르다.
+ */
+export type DateIntent = { kind: 'auto' } | { kind: 'manual'; selection: Selection } | { kind: 'lastWeek' }
+
+export const AUTO_INTENT: DateIntent = { kind: 'auto' }
+
+/**
+ * 새 목록에서 의도를 다시 살린다. 살릴 수 없으면 null — 호출부가 기본값으로 간다.
+ *
+ * 직접 고른 날짜는 **두 날짜가 그대로 다 있을 때만** 살린다. 한쪽만 맞추면 사람이 고른 것도
+ * 기본값도 아닌 어중간한 쌍이 된다. 지난주는 새 목록으로 다시 계산한다.
+ */
+export function selectionFromIntent(
+  intent: DateIntent,
+  leftSnapshots: readonly Snapshot[],
+  rightSnapshots: readonly Snapshot[],
+  sameSource: boolean,
+  range: WeekRange
+): Selection | null {
+  if (intent.kind === 'auto') return null
+  const want =
+    intent.kind === 'lastWeek'
+      ? lastWeekSelection(leftSnapshots, rightSnapshots, sameSource, range)
+      : intent.selection
+  if (!want) return null
+  // 같은 날짜끼리는 지난주(변경 없음)에서만 나온다
+  const fixed = normalizeSelection(want, leftSnapshots, rightSnapshots, sameSource, intent.kind === 'lastWeek')
+  return fixed.left === want.left && fixed.right === want.right ? fixed : null
+}
+
+/**
  * 직접 타이핑한 문자열을 스냅샷 하나로 해석한다. 위에서부터 순서대로 시도한다.
  *
  * 1. 폴더명 완전 일치 (대소문자 무시)

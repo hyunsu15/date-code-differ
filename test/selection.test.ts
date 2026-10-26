@@ -2,13 +2,14 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   EMPTY_SELECTION,
-  leftChoices,
-  normalizeSelection,
   daysBefore,
-  resolveSnapshotInput,
-  rightChoices,
   lastWeekRange,
   lastWeekSelection,
+  leftChoices,
+  normalizeSelection,
+  resolveSnapshotInput,
+  rightChoices,
+  selectionFromIntent,
 } from '../src/features/snapshots/selection.ts'
 import type { Selection } from '../src/features/snapshots/selection.ts'
 import type { Snapshot } from '../src/types.ts'
@@ -362,4 +363,46 @@ test('지난주 — 사용설명서 예시 표 (오늘 10-26 월)', () => {
   assert.equal(pick(['10-27', '10-21', '10-14']), '10-14 → 10-21')
   assert.equal(pick(['09-05', '09-01', '08-15']), '09-05 → 09-05')
   assert.equal(pick(['10-30', '10-28']), null)
+})
+
+/* ---------------- 환경을 바꿀 때 고른 것 살리기 ---------------- */
+
+test('의도 — 고른 적 없으면 null (기본값으로)', () => {
+  assert.equal(selectionFromIntent({ kind: 'auto' }, LIST, LIST, true, RANGE), null)
+})
+
+test('의도 — 직접 고른 두 날짜가 새 환경에 다 있으면 그대로', () => {
+  const picked = { kind: 'manual', selection: { left: '2026-07-01', right: '2026-08-01' } } as const
+  const other = ['2026-09-08', '2026-08-01', '2026-07-01'].map(snap)
+  assert.deepEqual(selectionFromIntent(picked, other, other, true, RANGE), { left: '2026-07-01', right: '2026-08-01' })
+})
+
+test('의도 — 직접 고른 날짜가 하나라도 없으면 null (어중간하게 한쪽만 맞추지 않는다)', () => {
+  const picked = { kind: 'manual', selection: { left: '2026-07-01', right: '2026-08-01' } } as const
+  const other = ['2026-09-01', '2026-08-01'].map(snap)
+  assert.equal(selectionFromIntent(picked, other, other, true, RANGE), null)
+})
+
+test('의도 — 환경이 갈렸다 같아지면서 순서가 거꾸로 되면 null', () => {
+  // 운영 09-01 ↔ 테스트 08-01 을 고른 뒤 한 환경으로 모으면 이후가 이전보다 오래됐다
+  const picked = { kind: 'manual', selection: { left: '2026-09-01', right: '2026-08-01' } } as const
+  assert.equal(selectionFromIntent(picked, LIST, LIST, true, RANGE), null)
+  // 같은 날짜 이름도 한 환경 안에서는 살리지 않는다
+  const same = { kind: 'manual', selection: { left: '2026-08-01', right: '2026-08-01' } } as const
+  assert.equal(selectionFromIntent(same, LIST, LIST, true, RANGE), null)
+  // 환경이 다르면 그대로 된다
+  assert.deepEqual(selectionFromIntent(same, LIST, LIST, false, RANGE), { left: '2026-08-01', right: '2026-08-01' })
+})
+
+test('의도 — 지난주는 새 환경 목록으로 다시 계산한다', () => {
+  const prod = ['2026-09-11', '2026-09-04', '2026-09-01'].map(snap)
+  const test = ['2026-09-08', '2026-09-02'].map(snap)
+  const lastWeek = { kind: 'lastWeek' } as const
+  assert.deepEqual(selectionFromIntent(lastWeek, prod, prod, true, RANGE), { left: '2026-09-04', right: '2026-09-11' })
+  assert.deepEqual(selectionFromIntent(lastWeek, test, test, true, RANGE), { left: '2026-09-02', right: '2026-09-08' })
+  // 새 폴더가 없는 주면 같은 날짜끼리
+  const idle = ['2026-09-01', '2026-08-01'].map(snap)
+  assert.deepEqual(selectionFromIntent(lastWeek, idle, idle, true, RANGE), { left: '2026-09-01', right: '2026-09-01' })
+  // 지난주 금요일 이전 폴더가 없으면 null (기본값으로)
+  assert.equal(selectionFromIntent(lastWeek, [snap('2026-09-20')], [snap('2026-09-20')], true, RANGE), null)
 })
