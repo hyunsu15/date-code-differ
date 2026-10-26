@@ -25,7 +25,14 @@ import { loadSchemaForReport } from './features/report/schemaForReport.ts'
 import SchemaPane from './features/schema/SchemaPane.tsx'
 import SnapshotPicker from './features/snapshots/SnapshotPicker.tsx'
 import Toasts from './features/toast/Toasts.tsx'
-import { EMPTY_SELECTION, normalizeSelection } from './features/snapshots/selection.ts'
+import {
+  AUTO_INTENT,
+  EMPTY_SELECTION,
+  lastWeekRange,
+  normalizeSelection,
+  selectionFromIntent,
+  type DateIntent,
+} from './features/snapshots/selection.ts'
 import { changeHistory } from './features/snapshots/dateList.ts'
 import HelpPanel from './features/help/HelpPanel.tsx'
 import SettingsPanel, { type SettingsResult } from './features/settings/SettingsPanel.tsx'
@@ -171,6 +178,14 @@ export default function App() {
   // 좌우는 (같은 곳일 때) "이후가 이전보다 최신" 규칙을 함께 지켜야 해서 한 상태로 묶는다
   const [selection, setSelection] = useState(EMPTY_SELECTION)
   const { left, right } = selection
+  /**
+   * 날짜를 **어떻게** 골랐나(`DateIntent`) — 환경·위치를 바꿔 목록을 새로 읽을 때 다시 적용한다.
+   * 직접 고른 두 날짜가 새 목록에 다 있으면 그대로, 지난주는 새 목록으로 다시 계산, 안 되면 기본값.
+   * 기본값으로 떨어져도 의도는 남겨 둔다 — 원래 환경으로 돌아오면 고른 날짜가 다시 나온다.
+   */
+  const dateIntent = useRef<DateIntent>(AUTO_INTENT)
+  /** 지금 선택이 기본값으로 정해진 것인지 — 그때만 "최근 변경으로 맞추기" 가 끼어든다 */
+  const autoPicked = useRef(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [loadingSnapshots, setLoadingSnapshots] = useState(true)
 
@@ -214,6 +229,8 @@ export default function App() {
     right: [],
   })
   const [schemaSelection, setSchemaSelection] = useState(EMPTY_SELECTION)
+  /** 스키마 탭의 날짜 의도 — 덤프 날짜는 소스와 달라 따로 둔다 */
+  const schemaIntent = useRef<DateIntent>(AUTO_INTENT)
   const [loadingSchema, setLoadingSchema] = useState(false)
   const [schemaError, setSchemaError] = useState<string | null>(null)
   /** 스키마 위치를 아직 안 적었으면 탭을 눌러도 읽지 않는다 */
@@ -356,11 +373,18 @@ export default function App() {
 
       setLeftLoaded(leftRes.loaded)
       setRightLoaded(rightRes.loaded)
-      // 고르고 있던 스냅샷이 남아 있으면 유지하고, 아니면 규칙에 맞게 맞춘다.
-      // 같은 날짜끼리(지난주 · 변경 없음)는 ⟳ 새로고침에서만 지킨다 — 환경을 바꾼 뒤엔 다시 고른다
-      setSelection((prev) =>
-        normalizeSelection(prev, leftRes.loaded.items, rightRes.loaded.items, same, refresh)
-      )
+      // 사람이 고른 것(직접 입력 · 지난주)을 새 목록에서 먼저 살린다
+      setSelection((prev) => {
+        const lefts = leftRes.loaded.items
+        const rights = rightRes.loaded.items
+        const restored = selectionFromIntent(dateIntent.current, lefts, rights, same, lastWeekRange(new Date()))
+        autoPicked.current = restored === null
+        if (restored) return restored
+        // 기본값. 고른 게 있었는데 살릴 수 없으면 처음 열 때처럼 고른다 — 한쪽만 맞춘 어중간한 쌍을 남기지 않는다.
+        // 같은 날짜끼리(지난주 · 변경 없음)는 ⟳ 새로고침에서만 지킨다
+        const base = dateIntent.current.kind === 'auto' ? prev : EMPTY_SELECTION
+        return normalizeSelection(base, lefts, rights, same, refresh)
+      })
       setComparison(null)
 
       // 한쪽만 실패할 수 있다. 어느 위치가 실패했는지 함께 보여야 고칠 곳을 안다
@@ -685,7 +709,7 @@ export default function App() {
     pushToast(
       'info',
       `오른쪽을 ${envById(linked.right).label} 환경으로 맞췄습니다`,
-      '양쪽이 같은 환경이 되어 날짜는 그 환경의 최근 변경(이전 → 이후)으로 다시 고릅니다.\n' +
+      '양쪽이 같은 환경이 되어 고른 날짜(또는 지난주)가 그 환경에 있으면 그대로, 없으면 최근 변경으로 고릅니다.\n' +
         '묶기를 끄면 좌우 환경을 따로 고를 수 있습니다.'
     )
   }, [envLinked, envPair])
@@ -755,20 +779,26 @@ export default function App() {
 
   /**
    * 목록이 들어오면 규칙에 맞게 바로잡는다.
-   * 아직 아무것도 안 고른 상태면 **코드에서 고른 날짜에 맞춘다** — 8월 배포를 보다가
+   * 스키마 탭에서 고른 것(직접 입력 · 지난주)이 있으면 새 목록에서 먼저 살린다(`schemaIntent`).
+   * 아직 아무것도 안 고른 상태거나 살릴 수 없으면 **코드에서 고른 날짜에 맞춘다** — 8월 배포를 보다가
    * 탭을 눌렀는데 9월 스키마가 뜨면 무엇을 보고 있는지 어긋난다.
    */
   useEffect(() => {
     setSchemaSelection((prev) => {
-      const want =
-        prev.left || prev.right
-          ? prev
-          : {
-              left: matchSchemaDate(schemaLoaded.left, left),
-              right: matchSchemaDate(schemaLoaded.right, right),
-            }
-      // 코드가 같은 날짜끼리(지난주 · 변경 없음)면 스키마도 같은 덤프끼리 — 처음 맞출 때만
-      const keepSame = !(prev.left || prev.right) && left === right
+      const restored = selectionFromIntent(
+        schemaIntent.current,
+        schemaLoaded.left,
+        schemaLoaded.right,
+        sameSource,
+        lastWeekRange(new Date())
+      )
+      if (restored) return restored
+      const fresh = !(prev.left || prev.right) || schemaIntent.current.kind !== 'auto'
+      const want = fresh
+        ? { left: matchSchemaDate(schemaLoaded.left, left), right: matchSchemaDate(schemaLoaded.right, right) }
+        : prev
+      // 코드가 같은 날짜끼리(지난주 · 변경 없음)면 스키마도 같은 덤프끼리 — 코드에 맞출 때만
+      const keepSame = fresh && left === right
       return normalizeSelection(want, schemaLoaded.left, schemaLoaded.right, sameSource, keepSame)
     })
     // 코드 날짜(left·right)는 **처음 맞출 때만** 쓴다 — 의존성에 넣으면 코드 날짜를
@@ -778,55 +808,54 @@ export default function App() {
 
   const changeSchemaSide = useCallback(
     (side: Side, id: string) => {
-      setSchemaSelection((prev) =>
-        normalizeSelection(
-          side === 'left' ? { ...prev, left: id } : { ...prev, right: id },
-          schemaLoaded.left,
-          schemaLoaded.right,
-          sameSource
-        )
+      const next = normalizeSelection(
+        side === 'left' ? { ...schemaSelection, left: id } : { ...schemaSelection, right: id },
+        schemaLoaded.left,
+        schemaLoaded.right,
+        sameSource
       )
+      schemaIntent.current = { kind: 'manual', selection: next }
+      setSchemaSelection(next)
     },
-    [schemaLoaded, sameSource]
+    [schemaSelection, schemaLoaded, sameSource]
+  )
+
+  /** 한 칸을 고른 것 — 고친 뒤의 두 날짜를 의도로 기억한다 (`dateIntent`) */
+  const changeSide = useCallback(
+    (side: Side, id: string) => {
+      const next = normalizeSelection(
+        side === 'left' ? { ...selection, left: id } : { ...selection, right: id },
+        leftLoaded.items,
+        rightLoaded.items,
+        sameSource
+      )
+      dateIntent.current = { kind: 'manual', selection: next }
+      autoPicked.current = false
+      setSelection(next)
+    },
+    [selection, leftLoaded.items, rightLoaded.items, sameSource]
   )
 
   /**
-   * 사람이 날짜를 직접 골랐는지 — 고른 뒤에는 아래 "최근 변경으로 맞추기" 가 끼어들지 않는다.
-   * 위치(환경·프리셋)가 바뀌어 목록을 새로 읽으면 다시 처음 상태가 된다.
+   * 변경 이력 한 줄 · 빠른 선택 · 지난주 — 이전·이후를 **한 번에** 정한다 (따로 두 번 바꾸면 중간에 엉뚱한 비교가 뜬다).
+   * 지난주는 날짜가 아니라 "지난주" 를 기억한다 — 환경을 바꾸면 그 환경의 지난주로 다시 고른다.
    */
-  const datesTouched = useRef(false)
-  useEffect(() => {
-    datesTouched.current = false
-  }, [leftSource, rightSource])
-
-  const changeSide = useCallback(
-    (side: Side, id: string) => {
-      datesTouched.current = true
-      setSelection((prev) =>
-        normalizeSelection(
-          side === 'left' ? { ...prev, left: id } : { ...prev, right: id },
-          leftLoaded.items,
-          rightLoaded.items,
-          sameSource
-        )
-      )
-    },
-    [leftLoaded.items, rightLoaded.items, sameSource]
-  )
-
-  /** 변경 이력 한 줄 · 빠른 선택 — 이전·이후를 **한 번에** 정한다 (따로 두 번 바꾸면 중간에 엉뚱한 비교가 뜬다) */
   const changePair = useCallback(
-    (left: string, right: string) => {
-      datesTouched.current = true
+    (left: string, right: string, preset?: 'lastWeek') => {
       // 쌍을 통째로 고른 것이라 같은 날짜(지난주 · 변경 없음)도 그대로 둔다
-      setSelection(normalizeSelection({ left, right }, leftLoaded.items, rightLoaded.items, sameSource, true))
+      const next = normalizeSelection({ left, right }, leftLoaded.items, rightLoaded.items, sameSource, true)
+      dateIntent.current = preset === 'lastWeek' ? { kind: 'lastWeek' } : { kind: 'manual', selection: next }
+      autoPicked.current = false
+      setSelection(next)
     },
     [leftLoaded.items, rightLoaded.items, sameSource]
   )
 
   const changeSchemaPair = useCallback(
-    (left: string, right: string) => {
-      setSchemaSelection(normalizeSelection({ left, right }, schemaLoaded.left, schemaLoaded.right, sameSource, true))
+    (left: string, right: string, preset?: 'lastWeek') => {
+      const next = normalizeSelection({ left, right }, schemaLoaded.left, schemaLoaded.right, sameSource, true)
+      schemaIntent.current = preset === 'lastWeek' ? { kind: 'lastWeek' } : { kind: 'manual', selection: next }
+      setSchemaSelection(next)
     },
     [schemaLoaded, sameSource]
   )
@@ -836,10 +865,10 @@ export default function App() {
    *
    * 기본 선택은 "최신 날짜 · 그 바로 앞 날짜" 인데, 그 사이에 배포가 없었으면 두 폴더가 똑같아 빈 비교가
    * 뜬다(날짜가 매일 쌓이는 배치에서 흔하다). 변경 수가 들어오면 이전을 최근 변경의 앞 배포일로 옮긴다.
-   * 사람이 이미 날짜를 골랐으면 손대지 않는다.
+   * 사람이 고른 날짜가 살아 있으면(`autoPicked` 가 아니면) 손대지 않는다.
    */
   useEffect(() => {
-    if (!sameSource || datesTouched.current || !dateChanges.left) return
+    if (!sameSource || !autoPicked.current || !dateChanges.left) return
     const items = leftLoaded.items
     const latest = changeHistory(items, dateChanges.left).sets[0]
     const newest = items.find((s) => s.sortKey)?.id

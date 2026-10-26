@@ -408,8 +408,8 @@ interface SnapshotPickerProps {
   /** 좌우가 같은 곳을 보는지 — 날짜 후보와 순서 규칙이 여기서 갈린다 */
   sameSource: boolean
   onChangeSnapshot: (side: Side, id: string) => void
-  /** 이전·이후를 함께 정한다 (변경 이력 한 줄 · 빠른 선택) */
-  onChangePair: (left: string, right: string) => void
+  /** 이전·이후를 함께 정한다 (변경 이력 한 줄 · 빠른 선택 · 지난주). 지난주는 'lastWeek' 을 함께 넘겨 환경을 바꿔도 그 환경의 지난주로 다시 고르게 한다 */
+  onChangePair: (left: string, right: string, preset?: 'lastWeek') => void
   onChangeEnv: (side: Side, envId: string) => void
   /** 환경을 좌우 함께 바꾸는 중인지 */
   envLinked: boolean
@@ -550,7 +550,7 @@ export default function SnapshotPicker({
       <button
         type="button"
         className={`btn sm week-preset${weekOn ? ' on' : ''}`}
-        onClick={() => week && onChangePair(week.left, week.right)}
+        onClick={() => week && onChangePair(week.left, week.right, 'lastWeek')}
         disabled={disabled || week === null}
         aria-pressed={weekOn}
         title={weekTitle}
