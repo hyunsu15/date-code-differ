@@ -48,6 +48,9 @@ export function rightChoices(
  * 목록이 바뀌었거나 `이전` 을 옮겨 `이후` 가 더 이상 최신이 아니게 된 경우를 여기서 흡수한다.
  *
  * **같은 위치일 때** (`leftSnapshots === rightSnapshots` 인 한 목록)
+ * - `keepSameDate` 면 좌우가 **같은 날짜**여도 그대로 둔다 — 지난주 프리셋이 "그 주엔 새 폴더가 없었다
+ *   (바뀐 것 없음)" 를 보여줄 때 생긴다(`lastWeekSelection`). 쌍을 통째로 고를 때와 새로고침에서만 켠다 —
+ *   환경을 바꾸다 우연히 같은 이름이 남은 것까지 붙잡으면 빈 비교가 뜬다. 칸의 고르기 목록에는 여전히 안 나온다.
  * - 스냅샷이 2개 미만이면 비교 자체가 불가능하므로 빈 선택을 돌려준다.
  * - `이전` 이 목록에 없거나 가장 최신이면 두 번째로 최신인 것으로 옮긴다.
  * - `이후` 가 목록에 없거나 `이전` 보다 오래됐으면 `이전` 바로 위(한 칸 더 최신)로 옮긴다.
@@ -60,7 +63,8 @@ export function normalizeSelection(
   want: Selection,
   leftSnapshots: readonly Snapshot[],
   rightSnapshots: readonly Snapshot[],
-  sameSource: boolean
+  sameSource: boolean,
+  keepSameDate = false
 ): Selection {
   if (!sameSource) {
     if (leftSnapshots.length === 0 || rightSnapshots.length === 0) return EMPTY_SELECTION
@@ -70,6 +74,7 @@ export function normalizeSelection(
   }
 
   const snapshots = leftSnapshots
+  if (keepSameDate && want.left === want.right && indexOfSnapshot(snapshots, want.left) >= 0) return want
   if (snapshots.length < 2) return EMPTY_SELECTION
 
   const wantedLeft = indexOfSnapshot(snapshots, want.left)
@@ -115,8 +120,9 @@ export function lastWeekRange(today: Date): WeekRange {
  * - 그 금요일에 날짜 폴더가 없으면 **그보다 앞의 가장 가까운 날짜**를 쓴다 — 배포가 없던 날은 폴더도 없으니,
  *   그날 깔려 있던 것은 바로 앞 배포본이다. 그래야 그 주에 바뀐 것이 빠짐없이 들어온다.
  * - 지지난주 금요일보다 앞선 날짜가 없으면(목록이 그 주 안에서 시작하면) 가장 오래된 날짜.
- * - 같은 곳인데 두 금요일 사이에 생긴 폴더가 없으면 견줄 것이 없다 — null.
- * - 날짜를 못 읽는 폴더는 고르지 않는다. 고를 것이 없으면 null.
+ * - 같은 곳인데 두 금요일 사이에 생긴 폴더가 없으면 **같은 날짜끼리** 고른다 — 비교 화면이 그대로
+ *   "바뀐 파일이 없습니다" 를 보여준다. 버튼이 잠기면 "왜 안 되지" 로 읽히므로 이 편이 낫다.
+ * - 지난주 금요일 이전 날짜 폴더가 아예 없거나 날짜로 읽히는 폴더가 없으면 null.
  *
  * 같은 곳이면 한 목록에서 둘을 고르므로 `이전` 은 늘 `이후` 보다 오래됐다 (`normalizeSelection` 규칙).
  * 환경이 다르면 각 환경에서 같은 기준으로 고른다.
@@ -130,9 +136,9 @@ export function lastWeekSelection(
   const ri = rightSnapshots.findIndex((s) => s.sortKey !== '' && s.sortKey <= range.to)
   if (ri < 0) return null
   const right = rightSnapshots[ri]
-  if (sameSource && right.sortKey <= range.from) return null
 
-  const candidates = (sameSource ? leftSnapshots.slice(ri + 1) : leftSnapshots).filter((s) => s.sortKey !== '')
+  // 같은 곳이면 `이후` 자신도 후보다 — 그 주에 새 폴더가 없으면 자기 자신이 지지난주 금요일 시점이다
+  const candidates = (sameSource ? leftSnapshots.slice(ri) : leftSnapshots).filter((s) => s.sortKey !== '')
   const left = candidates.find((s) => s.sortKey <= range.from) ?? candidates.at(-1)
   return left ? { left: left.id, right: right.id } : null
 }

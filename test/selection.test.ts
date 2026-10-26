@@ -307,12 +307,34 @@ test('지난주 — 지지난주 금요일보다 앞선 날짜가 없으면 가�
   assert.deepEqual(lastWeekSelection(short, short, true, RANGE), { left: '2026-09-07', right: '2026-09-10' })
 })
 
-test('지난주 — 두 금요일 사이에 생긴 폴더가 없으면 null', () => {
-  const idle = ['2026-09-14', '2026-09-01', '2026-08-01'].map(snap)
-  assert.equal(lastWeekSelection(idle, idle, true, RANGE), null)
-  // 지난주 금요일 이전 폴더가 아예 없어도 null
+test('지난주 — 두 금요일 사이에 새 폴더가 없어도 고른다: 같은 날짜끼리 (바뀐 것 없음)', () => {
+  // 예시 폴더(운영 · 마지막 09-05)를 10-26 에 열었을 때와 같은 모양
+  const prod = ['2026-09-05', '2026-09-01', '2026-08-15', '2026-08-01'].map(snap)
+  const week = { from: '20261016', to: '20261023' }
+  assert.deepEqual(lastWeekSelection(prod, prod, true, week), { left: '2026-09-05', right: '2026-09-05' })
+
+  // 폴더가 하나뿐이어도 같은 날짜끼리
+  assert.deepEqual(lastWeekSelection([snap('2026-09-01')], [snap('2026-09-01')], true, RANGE), {
+    left: '2026-09-01',
+    right: '2026-09-01',
+  })
+})
+
+test('지난주 — 지난주 금요일 이전 폴더가 아예 없으면 null', () => {
   const future = ['2026-09-20', '2026-09-15'].map(snap)
   assert.equal(lastWeekSelection(future, future, true, RANGE), null)
+})
+
+test('같은 날짜 쌍은 keepSameDate 일 때만 그대로 둔다', () => {
+  const same = { left: '2026-09-01', right: '2026-09-01' }
+  assert.deepEqual(normalizeSelection(same, LIST, LIST, true, true), same)
+  // 평소(환경 전환 · 한 칸만 바꾸기)에는 예전처럼 이전 · 이후로 바로잡는다
+  assert.deepEqual(normalizeSelection(same, LIST, LIST, true), { left: '2026-08-01', right: '2026-09-01' })
+  // 목록에 없는 날짜면 켜 있어도 바로잡는다
+  assert.deepEqual(normalizeSelection({ left: 'x', right: 'x' }, LIST, LIST, true, true), {
+    left: '2026-08-01',
+    right: '2026-09-01',
+  })
 })
 
 test('지난주 — 날짜를 못 읽는 폴더는 고르지 않는다', () => {
