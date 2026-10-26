@@ -10,6 +10,7 @@ import {
 import CodeSearchBar from './features/diff/CodeSearchBar.tsx'
 import DiffNav from './features/diff/DiffNav.tsx'
 import DiffViewer from './features/diff/DiffViewer.tsx'
+import AllSameNotice from './features/files/AllSameNotice.tsx'
 import FileList from './features/files/FileList.tsx'
 import PackageSummary from './features/packages/PackageSummary.tsx'
 import ReportButton, { type ReportOption } from './features/report/ReportButton.tsx'
@@ -493,6 +494,14 @@ export default function App() {
     () => shownItems(fileGroups.changed, fileGroups.same, sameOpen, searchingFiles),
     [fileGroups, sameOpen, searchingFiles]
   )
+
+  /** 바뀐 파일 없이 동일한 것만 접혀 있다 — 본문 자리에 "모두 동일 · 펼치기" 를 띄운다 (`AllSameNotice`) */
+  const allSame =
+    comparison !== null &&
+    !loadingSnapshots &&
+    !comparing &&
+    fileGroups.changed.length === 0 &&
+    fileGroups.same.length > 0
 
   // 날짜·환경이 바뀌면(= 다른 비교) 동일한 파일은 다시 접는다
   useEffect(() => {
@@ -1556,6 +1565,13 @@ export default function App() {
                   )}
                 </div>
               </>
+            ) : allSame ? (
+              <AllSameNotice
+                count={fileGroups.same.length}
+                noun="파일"
+                excluded={showExcluded ? 0 : local.excluded}
+                onOpen={() => setSameOpen(true)}
+              />
             ) : (
               <div className="empty" role="status">
                 {busy && <span className="spinner lg" aria-hidden="true" />}

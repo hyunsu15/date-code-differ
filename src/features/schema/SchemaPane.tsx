@@ -3,6 +3,7 @@ import { fetchSchemaComparison } from '../../api/client.ts'
 import SchemaBand from './SchemaBand.tsx'
 import SchemaTable from './SchemaTable.tsx'
 import TableList from './TableList.tsx'
+import AllSameNotice from '../files/AllSameNotice.tsx'
 import { filterTables, summarize } from './schemaView.ts'
 import { shownItems, splitSame } from '../../lib/changedFirst.ts'
 import {
@@ -544,14 +545,17 @@ export default function SchemaPane({
                 onToggleExclude={(member) => toggleExclude(selected.name, member)}
               />
             </>
+          ) : comparison && !comparing && groups.changed.length === 0 && groups.same.length > 0 ? (
+            <AllSameNotice
+              count={groups.same.length}
+              noun="테이블"
+              excluded={showExcluded ? 0 : excluded.excludedTables}
+              onOpen={() => setSameOpen(true)}
+            />
           ) : (
             <div className="empty">
               <h2>{comparing ? '읽는 중…' : '볼 테이블이 없습니다'}</h2>
-              <p>
-                위에서 좌우의 환경·날짜를 고르면 그 시점의 스키마를 견줍니다.
-                <br />
-                변경이 없으면 <b>변경된 테이블만</b> 을 끄고 전체를 볼 수 있습니다.
-              </p>
+              <p>위에서 좌우의 환경·날짜를 고르면 그 시점의 스키마를 견줍니다.</p>
             </div>
           )}
         </section>
