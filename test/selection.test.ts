@@ -7,7 +7,8 @@ import {
   daysBefore,
   resolveSnapshotInput,
   rightChoices,
-  weekAgoSelection,
+  lastWeekRange,
+  lastWeekSelection,
 } from '../src/features/snapshots/selection.ts'
 import type { Selection } from '../src/features/snapshots/selection.ts'
 import type { Snapshot } from '../src/types.ts'
@@ -272,7 +273,7 @@ test('고를 수 있는 목록 밖은 해석되지 않는다', () => {
   assert.equal(resolveSnapshotInput(rights, '2026-06-01'), null)
 })
 
-/* ---------------- 일주일 프리셋 ---------------- */
+/* ---------------- 지난주 프리셋 ---------------- */
 
 test('며칠 앞 날짜 — 달·해를 넘긴다', () => {
   assert.equal(daysBefore('20260908', 7), '20260901')
@@ -280,33 +281,49 @@ test('며칠 앞 날짜 — 달·해를 넘긴다', () => {
   assert.equal(daysBefore('20260105', 7), '20251229')
 })
 
-test('일주일 — 최신과 정확히 7일 전 날짜가 있으면 그 둘', () => {
-  const daily = ['2026-09-08', '2026-09-05', '2026-09-01', '2026-08-25'].map(snap)
-  assert.deepEqual(weekAgoSelection(daily, daily, true), { left: '2026-09-01', right: '2026-09-08' })
+test('지난주 = 지지난주 금요일 → 지난주 금요일 (주는 월~일)', () => {
+  const week = { from: '20261016', to: '20261023' }
+  assert.deepEqual(lastWeekRange(new Date(2026, 9, 26)), week) // 월
+  assert.deepEqual(lastWeekRange(new Date(2026, 9, 30)), week) // 금 — 이번 주 금요일이 아니라 지난주
+  assert.deepEqual(lastWeekRange(new Date(2026, 10, 1)), week) // 일
+  assert.deepEqual(lastWeekRange(new Date(2026, 0, 5)), { from: '20251226', to: '20260102' }) // 해 넘김
 })
 
-test('일주일 — 7일 전 폴더가 없으면 그보다 앞의 가장 가까운 날짜 (그날 깔려 있던 배포본)', () => {
-  const sparse = ['2026-09-10', '2026-09-05', '2026-09-01', '2026-08-20'].map(snap)
-  // 09-10 의 7일 전은 09-03 → 그 앞 가장 가까운 09-01. 09-05 는 일주일 안이라 고르지 않는다
-  assert.deepEqual(weekAgoSelection(sparse, sparse, true), { left: '2026-09-01', right: '2026-09-10' })
+const RANGE = { from: '20260904', to: '20260911' }
+
+test('지난주 — 두 금요일에 폴더가 있으면 그 둘', () => {
+  const list = ['2026-09-14', '2026-09-11', '2026-09-08', '2026-09-04', '2026-09-01'].map(snap)
+  // 이번 주(09-14) 것은 넘긴다
+  assert.deepEqual(lastWeekSelection(list, list, true, RANGE), { left: '2026-09-04', right: '2026-09-11' })
 })
 
-test('일주일 — 거슬러 갈 날짜가 없으면 가장 오래된 날짜', () => {
-  const short = ['2026-09-05', '2026-09-03', '2026-09-01'].map(snap)
-  assert.deepEqual(weekAgoSelection(short, short, true), { left: '2026-09-01', right: '2026-09-05' })
+test('지난주 — 금요일에 폴더가 없으면 그 앞 가장 가까운 날짜 (그날 깔려 있던 배포본)', () => {
+  const sparse = ['2026-09-10', '2026-09-07', '2026-09-02', '2026-08-20'].map(snap)
+  assert.deepEqual(lastWeekSelection(sparse, sparse, true, RANGE), { left: '2026-09-02', right: '2026-09-10' })
 })
 
-test('일주일 — 날짜를 못 읽는 폴더는 고르지 않고, 고를 것이 없으면 null', () => {
-  const mixed = [...LIST, snap('latest')]
-  assert.deepEqual(weekAgoSelection(mixed, mixed, true), { left: '2026-08-01', right: '2026-09-01' })
-  assert.equal(weekAgoSelection([snap('2026-09-01')], [snap('2026-09-01')], true), null)
-  assert.equal(weekAgoSelection([snap('latest'), snap('old')], [snap('latest'), snap('old')], true), null)
+test('지난주 — 지지난주 금요일보다 앞선 날짜가 없으면 가장 오래된 날짜', () => {
+  const short = ['2026-09-10', '2026-09-08', '2026-09-07'].map(snap)
+  assert.deepEqual(lastWeekSelection(short, short, true, RANGE), { left: '2026-09-07', right: '2026-09-10' })
 })
 
-test('일주일 — 환경이 다르면 이후는 대상 환경 최신, 이전은 기준 환경에서 7일 전', () => {
-  const prod = ['2026-09-05', '2026-09-01', '2026-08-15'].map(snap)
-  const test = ['2026-09-08', '2026-08-01'].map(snap)
-  // 테스트 최신 09-08 의 7일 전 = 09-01 → 운영 09-01
-  assert.deepEqual(weekAgoSelection(prod, test, false), { left: '2026-09-01', right: '2026-09-08' })
-  assert.equal(weekAgoSelection([], test, false), null)
+test('지난주 — 두 금요일 사이에 생긴 폴더가 없으면 null', () => {
+  const idle = ['2026-09-14', '2026-09-01', '2026-08-01'].map(snap)
+  assert.equal(lastWeekSelection(idle, idle, true, RANGE), null)
+  // 지난주 금요일 이전 폴더가 아예 없어도 null
+  const future = ['2026-09-20', '2026-09-15'].map(snap)
+  assert.equal(lastWeekSelection(future, future, true, RANGE), null)
+})
+
+test('지난주 — 날짜를 못 읽는 폴더는 고르지 않는다', () => {
+  const mixed = ['2026-09-11', '2026-09-04', 'latest'].map(snap)
+  assert.deepEqual(lastWeekSelection(mixed, mixed, true, RANGE), { left: '2026-09-04', right: '2026-09-11' })
+  assert.equal(lastWeekSelection([snap('latest'), snap('old')], [snap('latest'), snap('old')], true, RANGE), null)
+})
+
+test('지난주 — 환경이 다르면 각 환경에서 같은 기준으로 고른다', () => {
+  const prod = ['2026-09-05', '2026-09-01'].map(snap)
+  const test = ['2026-09-14', '2026-09-08', '2026-08-01'].map(snap)
+  assert.deepEqual(lastWeekSelection(prod, test, false, RANGE), { left: '2026-09-01', right: '2026-09-08' })
+  assert.equal(lastWeekSelection([], test, false, RANGE), null)
 })

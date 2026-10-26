@@ -81,41 +81,60 @@ export function normalizeSelection(
   return { left: snapshots[li].id, right: snapshots[ri].id }
 }
 
-/** 일주일 프리셋이 거슬러 가는 날 수 */
-export const WEEK_DAYS = 7
-
 /** `YYYYMMDD` 에서 며칠 앞의 `YYYYMMDD` — 달·해 넘김은 Date 가 맡는다 (시간대 영향이 없게 UTC 로 센다) */
 export function daysBefore(sortKey: string, days: number): string {
   const at = Date.UTC(Number(sortKey.slice(0, 4)), Number(sortKey.slice(4, 6)) - 1, Number(sortKey.slice(6, 8)))
   return new Date(at - days * 86_400_000).toISOString().slice(0, 10).replace(/-/g, '')
 }
 
+/** 지난주 프리셋이 견주는 두 금요일 (`YYYYMMDD`) */
+export interface WeekRange {
+  /** 지지난주 금요일 — 이 날 깔려 있던 것이 `이전` */
+  from: string
+  /** 지난주 금요일 — 이 날 깔려 있던 것이 `이후` */
+  to: string
+}
+
 /**
- * **일주일 프리셋** — `이후` 는 대상 쪽 최신 날짜, `이전` 은 그 7일 전 시점의 모습.
+ * 오늘 기준 **지지난주 금요일 → 지난주 금요일**. 주는 월~일로 센다 —
+ * 월요일이든 일요일이든 "지난주 금요일" 은 바로 앞 주의 금요일이다 (10-26 월 · 11-01 일 → 10-23).
+ * 날짜는 사용자 PC 시계(로컬 시간)로 정한다.
+ */
+export function lastWeekRange(today: Date): WeekRange {
+  const fromMonday = (today.getDay() + 6) % 7 // 월=0 … 일=6
+  // 이번 주 월요일의 3일 전 = 지난주 금요일
+  const friday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - fromMonday - 3)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  const to = `${friday.getFullYear()}${pad(friday.getMonth() + 1)}${pad(friday.getDate())}`
+  return { from: daysBefore(to, 7), to }
+}
+
+/**
+ * **지난주 프리셋** — 지지난주 금요일 시점(`이전`)과 지난주 금요일 시점(`이후`)을 견준다.
  *
- * - 7일 전 날짜 폴더가 없으면 **그보다 앞의 가장 가까운 날짜**를 쓴다 — 배포가 없던 날은 폴더도 없으니,
- *   그날 깔려 있던 것은 바로 앞 배포본이다. 그래야 "이번 주에 바뀐 것" 이 빠짐없이 들어온다.
- * - 7일을 거슬러 갈 날짜가 없으면(목록이 일주일보다 짧으면) 가장 오래된 날짜.
+ * - 그 금요일에 날짜 폴더가 없으면 **그보다 앞의 가장 가까운 날짜**를 쓴다 — 배포가 없던 날은 폴더도 없으니,
+ *   그날 깔려 있던 것은 바로 앞 배포본이다. 그래야 그 주에 바뀐 것이 빠짐없이 들어온다.
+ * - 지지난주 금요일보다 앞선 날짜가 없으면(목록이 그 주 안에서 시작하면) 가장 오래된 날짜.
+ * - 같은 곳인데 두 금요일 사이에 생긴 폴더가 없으면 견줄 것이 없다 — null.
  * - 날짜를 못 읽는 폴더는 고르지 않는다. 고를 것이 없으면 null.
  *
  * 같은 곳이면 한 목록에서 둘을 고르므로 `이전` 은 늘 `이후` 보다 오래됐다 (`normalizeSelection` 규칙).
- * 환경이 다르면 `이후` 는 대상 환경 최신, `이전` 은 기준 환경에서 같은 기준으로 고른다.
+ * 환경이 다르면 각 환경에서 같은 기준으로 고른다.
  */
-export function weekAgoSelection(
+export function lastWeekSelection(
   leftSnapshots: readonly Snapshot[],
   rightSnapshots: readonly Snapshot[],
-  sameSource: boolean
+  sameSource: boolean,
+  range: WeekRange
 ): Selection | null {
-  const ri = rightSnapshots.findIndex((s) => s.sortKey !== '')
+  const ri = rightSnapshots.findIndex((s) => s.sortKey !== '' && s.sortKey <= range.to)
   if (ri < 0) return null
   const right = rightSnapshots[ri]
+  if (sameSource && right.sortKey <= range.from) return null
 
   const candidates = (sameSource ? leftSnapshots.slice(ri + 1) : leftSnapshots).filter((s) => s.sortKey !== '')
-  if (candidates.length === 0) return null
-
-  const target = daysBefore(right.sortKey, WEEK_DAYS)
-  const left = candidates.find((s) => s.sortKey <= target) ?? candidates[candidates.length - 1]
-  return { left: left.id, right: right.id }
+  const left = candidates.find((s) => s.sortKey <= range.from) ?? candidates.at(-1)
+  return left ? { left: left.id, right: right.id } : null
 }
 
 /**
