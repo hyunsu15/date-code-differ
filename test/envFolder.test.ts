@@ -304,12 +304,12 @@ test('묶기를 켜면 오른쪽이 왼쪽 환경에 맞춰진다', () => {
   assert.deepEqual(linkEnvPair({ left: 'test', right: 'test' }), { left: 'test', right: 'test' })
 })
 
-test('묶기는 명시적으로 켠 저장값만 켠다', () => {
+test('묶기는 처음 켜져 있고, 끈 저장값만 끈다', () => {
+  assert.equal(parseEnvLinked(null), true, '저장된 게 없으면 켜진 채 연다')
   assert.equal(parseEnvLinked('1'), true)
-  assert.equal(parseEnvLinked('0'), false)
-  assert.equal(parseEnvLinked(null), false, '저장된 게 없으면 꺼진 채 연다 — 기본은 운영 ↔ 테스트')
-  assert.equal(parseEnvLinked(''), false)
-  assert.equal(parseEnvLinked('true'), false, '모르는 값은 켜지 않는다')
+  assert.equal(parseEnvLinked('0'), false, '끈 적이 있으면 끈 채 연다')
+  assert.equal(parseEnvLinked(''), true)
+  assert.equal(parseEnvLinked('true'), true, '모르는 값은 처음과 같이 본다')
 })
 
 test('고른 환경은 실제로 붙일 경로를 돌려준다', () => {

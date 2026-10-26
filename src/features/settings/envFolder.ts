@@ -146,14 +146,17 @@ export function pickEnv(pair: EnvPair, side: Side, id: string, linked: boolean):
  */
 export const linkEnvPair = (pair: EnvPair): EnvPair => pickEnv(pair, 'left', pair.left, true)
 
-/** 저장값을 묶기 여부로 바꾼다. 명시적으로 켠 적이 있을 때만 켠다 */
-export const parseEnvLinked = (raw: string | null): boolean => raw === '1'
+/**
+ * 저장값을 묶기 여부로 바꾼다. **처음은 켜져 있다** — 한 환경의 두 날짜를 오가는 일이 운영↔테스트
+ * 비교보다 잦다. 끈 적이 있으면(`'0'`) 그대로 끈 채 연다. 모르는 값은 처음과 같이 본다.
+ */
+export const parseEnvLinked = (raw: string | null): boolean => raw !== '0'
 
 export function loadEnvLinked(): boolean {
   try {
     return parseEnvLinked(localStorage.getItem(LINK_STORAGE_KEY))
   } catch {
-    return false
+    return parseEnvLinked(null) // 저장소 접근 자체가 막힌 브라우저 — 처음과 같이
   }
 }
 

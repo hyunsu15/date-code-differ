@@ -60,7 +60,8 @@
         localStorage.setItem('cd-scope', 'changed')
         // 앞선 촬영이 남긴 값이 다음 장면으로 새면 엉뚱한 화면을 찍는다 — 매번 못 박는다
         localStorage.setItem('cd-mode', mode)
-        localStorage.removeItem('cd-env-linked')
+        // 묶기는 처음 켜져 있다 — 켜 두면 운영 ↔ 테스트 장면이 한 환경으로 모이므로 끈 채 찍는다
+        localStorage.setItem('cd-env-linked', '0')
         localStorage.removeItem('cd-report-kind')
         localStorage.removeItem('cd-date-list')
         localStorage.removeItem('cd-my-exclude')
