@@ -39,6 +39,7 @@ const SHOTS = [
   ['12-undo', 'undo'],
   ['13-help', 'help'],
   ['14-allsame', 'allsame'],
+  ['15-lastweek', 'lastweek'],
 ]
 
 /**
