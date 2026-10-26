@@ -1048,24 +1048,25 @@ export default function App() {
   const exclude = comparison?.exclude ?? null
 
   /**
+   * 지금 기다리는 일 — 없으면 null.
+   * 날짜 목록을 읽는 동안은 비교도 시작 전이라, 이걸 따로 짚지 않으면 "비교할 파일이 없습니다" 가
+   * 떠서 빈 폴더처럼 보인다. SSH 는 그 시간 대부분이 접속이라 "연결 중" 이라고만 적는다.
+   */
+  const loadingLabel = base.mode === 'ssh' ? 'SSH 연결 중…' : '날짜 목록을 읽는 중…'
+  const busy = loadingSnapshots ? loadingLabel : comparing ? '비교하는 중…' : null
+
+  /**
    * 목록이 비었을 때의 안내.
    * **접혀서 비었을 때를 따로 말한다** — "비교할 파일이 없습니다" 라고만 하면
    * 규칙을 너무 넓게 적어 전부 접어 놓고도 폴더가 비었다고 오해한다.
    */
   const emptyFileMessage = (): string => {
-    if (loadingSnapshots) return '날짜 목록을 읽는 중…'
-    if (comparing) return '비교하는 중…'
+    if (busy) return busy
     if (local.excluded > 0 && !showExcluded) {
       return '보이는 파일이 모두 접혀 있습니다. 위의 "제외" 를 눌러 펼쳐 보세요.'
     }
     return '비교할 파일이 없습니다.'
   }
-  /**
-   * 지금 기다리는 일 — 없으면 null.
-   * 날짜 목록을 읽는 동안은 비교도 시작 전이라, 이걸 따로 짚지 않으면 "비교할 파일이 없습니다" 가
-   * 떠서 빈 폴더처럼 보인다 (SSH 는 몇 초씩 걸린다).
-   */
-  const busy = loadingSnapshots ? '날짜 목록을 읽는 중…' : comparing ? '비교하는 중…' : null
 
   /**
    * 스키마 탭이 소스와 다른 날짜를 보고 있으면 알린다.
@@ -1561,14 +1562,8 @@ export default function App() {
                 <h2>{busy ?? '비교할 파일을 고르세요'}</h2>
                 {loadingSnapshots ? (
                   <p>
-                    {describeSource(leftSource)} 에서 날짜 폴더를 찾고 있습니다.
-                    {leftSource.mode === 'ssh' && (
-                      <>
-                        <br />
-                        SSH 는 접속에 몇 초 걸릴 수 있습니다. 오래 멈춰 있으면 <code>npm run dev</code> 를
-                        띄운 터미널에서 비밀번호를 묻고 있는지 확인하세요.
-                      </>
-                    )}
+                    {describeSource(leftSource)}{' '}
+                    {leftSource.mode === 'ssh' ? '에 연결하고 있습니다.' : '에서 날짜 폴더를 찾고 있습니다.'}
                   </p>
                 ) : (
                   <p>
