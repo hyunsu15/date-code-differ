@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
-import { leftChoices, resolveSnapshotInput, rightChoices } from './selection.ts'
+import { leftChoices, resolveSnapshotInput, rightChoices, weekAgoSelection } from './selection.ts'
 import {
   arrangeDates,
   arrangeSets,
@@ -484,6 +484,13 @@ export default function SnapshotPicker({
   const pair = { left: left.value, right: right.value }
 
   /**
+   * 일주일 프리셋 — 대상 최신과 그 7일 전 시점(`weekAgoSelection`). 누르면 두 칸이 함께 정해진다.
+   * 지금 고른 것이 그 쌍이면 켜진 모양으로 둔다 — 날짜를 손으로 옮기면 저절로 꺼진다.
+   */
+  const week = weekAgoSelection(left.snapshots, right.snapshots, sameSource)
+  const weekOn = week !== null && week.left === pair.left && week.right === pair.right
+
+  /**
    * 환경 선택은 **날짜가 없어도 열어 둔다.**
    * 고른 환경에 날짜 폴더가 없을 때 여기까지 잠기면 다른 환경으로 빠져나갈 수가 없다.
    */
@@ -528,6 +535,23 @@ export default function SnapshotPicker({
 
   return (
     <div className="snapshot-picker">
+      <button
+        type="button"
+        className={`btn sm week-preset${weekOn ? ' on' : ''}`}
+        onClick={() => week && onChangePair(week.left, week.right)}
+        disabled={disabled || week === null}
+        aria-pressed={weekOn}
+        title={
+          week
+            ? `최근 일주일: ${week.left} → ${week.right}
+` +
+              '대상 최신 날짜와 그 7일 전 시점을 견줍니다 (7일 전 폴더가 없으면 그 앞 가장 가까운 날짜)'
+            : '날짜로 읽히는 폴더가 둘 이상 있어야 고를 수 있습니다'
+        }
+      >
+        일주일
+      </button>
+
       <SnapshotCombo
         side="left"
         tag={tagFor('left', left)}
@@ -566,13 +590,14 @@ export default function SnapshotPicker({
           onClick={onToggleEnvLink}
           disabled={loading}
           aria-pressed={envLinked}
+          aria-label="환경 묶기"
           title={
             envLinked
               ? '환경 묶음 켜짐 · 한쪽 환경을 바꾸면 양쪽이 같이 바뀝니다. 클릭하면 좌우를 따로 고릅니다'
               : '켜면 양쪽 환경을 한 번에 바꿉니다 (오른쪽이 왼쪽 환경으로 맞춰집니다)'
           }
         >
-          🔗 환경 묶기
+          🔗 <span className="btn-text">환경 묶기</span>
         </button>
       )}
 
@@ -581,6 +606,7 @@ export default function SnapshotPicker({
         className="btn sm"
         onClick={onRefresh}
         disabled={loading}
+        aria-label={loading ? undefined : '새로고침'}
         title="외부 폴더를 다시 읽습니다"
       >
         {/* 새로고침은 화면을 비우지 않고 읽으므로, 읽는 중인 것은 이 버튼이 알린다 */}
@@ -589,7 +615,9 @@ export default function SnapshotPicker({
             <span className="spinner" aria-hidden="true" /> 읽는 중…
           </>
         ) : (
-          '⟳ 새로고침'
+          <>
+            ⟳ <span className="btn-text">새로고침</span>
+          </>
         )}
       </button>
     </div>
