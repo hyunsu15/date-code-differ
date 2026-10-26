@@ -81,6 +81,43 @@ export function normalizeSelection(
   return { left: snapshots[li].id, right: snapshots[ri].id }
 }
 
+/** 일주일 프리셋이 거슬러 가는 날 수 */
+export const WEEK_DAYS = 7
+
+/** `YYYYMMDD` 에서 며칠 앞의 `YYYYMMDD` — 달·해 넘김은 Date 가 맡는다 (시간대 영향이 없게 UTC 로 센다) */
+export function daysBefore(sortKey: string, days: number): string {
+  const at = Date.UTC(Number(sortKey.slice(0, 4)), Number(sortKey.slice(4, 6)) - 1, Number(sortKey.slice(6, 8)))
+  return new Date(at - days * 86_400_000).toISOString().slice(0, 10).replace(/-/g, '')
+}
+
+/**
+ * **일주일 프리셋** — `이후` 는 대상 쪽 최신 날짜, `이전` 은 그 7일 전 시점의 모습.
+ *
+ * - 7일 전 날짜 폴더가 없으면 **그보다 앞의 가장 가까운 날짜**를 쓴다 — 배포가 없던 날은 폴더도 없으니,
+ *   그날 깔려 있던 것은 바로 앞 배포본이다. 그래야 "이번 주에 바뀐 것" 이 빠짐없이 들어온다.
+ * - 7일을 거슬러 갈 날짜가 없으면(목록이 일주일보다 짧으면) 가장 오래된 날짜.
+ * - 날짜를 못 읽는 폴더는 고르지 않는다. 고를 것이 없으면 null.
+ *
+ * 같은 곳이면 한 목록에서 둘을 고르므로 `이전` 은 늘 `이후` 보다 오래됐다 (`normalizeSelection` 규칙).
+ * 환경이 다르면 `이후` 는 대상 환경 최신, `이전` 은 기준 환경에서 같은 기준으로 고른다.
+ */
+export function weekAgoSelection(
+  leftSnapshots: readonly Snapshot[],
+  rightSnapshots: readonly Snapshot[],
+  sameSource: boolean
+): Selection | null {
+  const ri = rightSnapshots.findIndex((s) => s.sortKey !== '')
+  if (ri < 0) return null
+  const right = rightSnapshots[ri]
+
+  const candidates = (sameSource ? leftSnapshots.slice(ri + 1) : leftSnapshots).filter((s) => s.sortKey !== '')
+  if (candidates.length === 0) return null
+
+  const target = daysBefore(right.sortKey, WEEK_DAYS)
+  const left = candidates.find((s) => s.sortKey <= target) ?? candidates[candidates.length - 1]
+  return { left: left.id, right: right.id }
+}
+
 /**
  * 직접 타이핑한 문자열을 스냅샷 하나로 해석한다. 위에서부터 순서대로 시도한다.
  *
