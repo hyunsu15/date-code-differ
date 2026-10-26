@@ -550,6 +550,7 @@ export default function SchemaPane({
               count={groups.same.length}
               noun="테이블"
               excluded={showExcluded ? 0 : excluded.excludedTables}
+              sameDate={leftEnvId === rightEnvId && leftDate === rightDate ? leftDate : null}
               onOpen={() => setSameOpen(true)}
             />
           ) : (

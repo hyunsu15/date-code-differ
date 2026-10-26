@@ -495,7 +495,11 @@ export default function SnapshotPicker({
   const weekTitle = [
     `지난주: ${friday(weekRange.from)} → ${friday(weekRange.to)}`,
     '지지난주 금요일과 지난주 금요일 시점을 견줍니다 (그날 폴더가 없으면 그 앞 가장 가까운 날짜)',
-    week ? `고를 날짜: ${week.left} → ${week.right}` : '그 사이에 생긴 날짜 폴더가 없어 고를 수 없습니다',
+    !week
+      ? `지난주 금요일(${friday(weekRange.to)}) 이전 날짜 폴더가 없어 고를 수 없습니다`
+      : sameSource && week.left === week.right
+        ? `그 사이 새 날짜 폴더가 없어 같은 날짜(${week.left})끼리 견줍니다 — 바뀐 것 없음`
+        : `고를 날짜: ${week.left} → ${week.right}`,
   ].join('\n')
 
   /**

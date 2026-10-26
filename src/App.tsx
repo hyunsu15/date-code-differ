@@ -356,9 +356,10 @@ export default function App() {
 
       setLeftLoaded(leftRes.loaded)
       setRightLoaded(rightRes.loaded)
-      // 고르고 있던 스냅샷이 남아 있으면 유지하고, 아니면 규칙에 맞게 맞춘다
+      // 고르고 있던 스냅샷이 남아 있으면 유지하고, 아니면 규칙에 맞게 맞춘다.
+      // 같은 날짜끼리(지난주 · 변경 없음)는 ⟳ 새로고침에서만 지킨다 — 환경을 바꾼 뒤엔 다시 고른다
       setSelection((prev) =>
-        normalizeSelection(prev, leftRes.loaded.items, rightRes.loaded.items, same)
+        normalizeSelection(prev, leftRes.loaded.items, rightRes.loaded.items, same, refresh)
       )
       setComparison(null)
 
@@ -766,7 +767,9 @@ export default function App() {
               left: matchSchemaDate(schemaLoaded.left, left),
               right: matchSchemaDate(schemaLoaded.right, right),
             }
-      return normalizeSelection(want, schemaLoaded.left, schemaLoaded.right, sameSource)
+      // 코드가 같은 날짜끼리(지난주 · 변경 없음)면 스키마도 같은 덤프끼리 — 처음 맞출 때만
+      const keepSame = !(prev.left || prev.right) && left === right
+      return normalizeSelection(want, schemaLoaded.left, schemaLoaded.right, sameSource, keepSame)
     })
     // 코드 날짜(left·right)는 **처음 맞출 때만** 쓴다 — 의존성에 넣으면 코드 날짜를
     // 옮길 때마다 스키마 선택이 따라 흔들린다
@@ -815,14 +818,15 @@ export default function App() {
   const changePair = useCallback(
     (left: string, right: string) => {
       datesTouched.current = true
-      setSelection(normalizeSelection({ left, right }, leftLoaded.items, rightLoaded.items, sameSource))
+      // 쌍을 통째로 고른 것이라 같은 날짜(지난주 · 변경 없음)도 그대로 둔다
+      setSelection(normalizeSelection({ left, right }, leftLoaded.items, rightLoaded.items, sameSource, true))
     },
     [leftLoaded.items, rightLoaded.items, sameSource]
   )
 
   const changeSchemaPair = useCallback(
     (left: string, right: string) => {
-      setSchemaSelection(normalizeSelection({ left, right }, schemaLoaded.left, schemaLoaded.right, sameSource))
+      setSchemaSelection(normalizeSelection({ left, right }, schemaLoaded.left, schemaLoaded.right, sameSource, true))
     },
     [schemaLoaded, sameSource]
   )
@@ -1570,6 +1574,7 @@ export default function App() {
                 count={fileGroups.same.length}
                 noun="파일"
                 excluded={showExcluded ? 0 : local.excluded}
+                sameDate={sameSource && left === right ? left : null}
                 onOpen={() => setSameOpen(true)}
               />
             ) : (
