@@ -349,3 +349,17 @@ test('지난주 — 환경이 다르면 각 환경에서 같은 기준으로 고
   assert.deepEqual(lastWeekSelection(prod, test, false, RANGE), { left: '2026-09-01', right: '2026-09-08' })
   assert.equal(lastWeekSelection([], test, false, RANGE), null)
 })
+
+test('지난주 — 사용설명서 예시 표 (오늘 10-26 월)', () => {
+  const week = lastWeekRange(new Date(2026, 9, 26))
+  const pick = (dates: string[]) => {
+    const list = dates.map((d) => snap(`2026-${d}`))
+    const s = lastWeekSelection(list, list, true, week)
+    return s && `${s.left.slice(5)} → ${s.right.slice(5)}`
+  }
+  assert.equal(pick(['10-23', '10-16', '10-09']), '10-16 → 10-23')
+  assert.equal(pick(['10-21', '10-14', '10-07']), '10-14 → 10-21')
+  assert.equal(pick(['10-27', '10-21', '10-14']), '10-14 → 10-21')
+  assert.equal(pick(['09-05', '09-01', '08-15']), '09-05 → 09-05')
+  assert.equal(pick(['10-30', '10-28']), null)
+})
