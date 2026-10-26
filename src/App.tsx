@@ -559,6 +559,8 @@ export default function App() {
     // 날짜를 바꾼 직후에는 파일 목록이 아직 이전 좌우 조합의 것이다.
     // 그때 요청하면 새 조합에 없는 파일을 물어보게 되므로(404) 목록이 따라올 때까지 기다린다.
     if (comparison?.left !== left || comparison?.right !== right) return
+    // 환경만 바꾸고 날짜는 그대로면(고른 날짜를 이어 갈 때) 위 검사가 통과한다 — 목록이 새 위치 것이 될 때까지 기다린다
+    if (leftLoaded.source !== leftSource || rightLoaded.source !== rightSource) return
 
     const seq = ++contentSeq.current
     setContentError(null)
@@ -574,6 +576,8 @@ export default function App() {
   }, [
     leftSource,
     rightSource,
+    leftLoaded.source,
+    rightLoaded.source,
     selectedFile?.path,
     left,
     right,
