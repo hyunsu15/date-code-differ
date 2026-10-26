@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
-import { leftChoices, resolveSnapshotInput, rightChoices, weekAgoSelection } from './selection.ts'
+import { lastWeekRange, lastWeekSelection, leftChoices, resolveSnapshotInput, rightChoices } from './selection.ts'
 import {
   arrangeDates,
   arrangeSets,
@@ -484,11 +484,19 @@ export default function SnapshotPicker({
   const pair = { left: left.value, right: right.value }
 
   /**
-   * 일주일 프리셋 — 대상 최신과 그 7일 전 시점(`weekAgoSelection`). 누르면 두 칸이 함께 정해진다.
+   * 지난주 프리셋 — 지지난주 금요일 → 지난주 금요일 시점(`lastWeekSelection`). 누르면 두 칸이 함께 정해진다.
    * 지금 고른 것이 그 쌍이면 켜진 모양으로 둔다 — 날짜를 손으로 옮기면 저절로 꺼진다.
    */
-  const week = weekAgoSelection(left.snapshots, right.snapshots, sameSource)
+  const weekRange = lastWeekRange(new Date())
+  const week = lastWeekSelection(left.snapshots, right.snapshots, sameSource, weekRange)
   const weekOn = week !== null && week.left === pair.left && week.right === pair.right
+  /** `20261016` → `10-16(금)` */
+  const friday = (key: string): string => `${key.slice(4, 6)}-${key.slice(6, 8)}(금)`
+  const weekTitle = [
+    `지난주: ${friday(weekRange.from)} → ${friday(weekRange.to)}`,
+    '지지난주 금요일과 지난주 금요일 시점을 견줍니다 (그날 폴더가 없으면 그 앞 가장 가까운 날짜)',
+    week ? `고를 날짜: ${week.left} → ${week.right}` : '그 사이에 생긴 날짜 폴더가 없어 고를 수 없습니다',
+  ].join('\n')
 
   /**
    * 환경 선택은 **날짜가 없어도 열어 둔다.**
@@ -541,15 +549,9 @@ export default function SnapshotPicker({
         onClick={() => week && onChangePair(week.left, week.right)}
         disabled={disabled || week === null}
         aria-pressed={weekOn}
-        title={
-          week
-            ? `최근 일주일: ${week.left} → ${week.right}
-` +
-              '대상 최신 날짜와 그 7일 전 시점을 견줍니다 (7일 전 폴더가 없으면 그 앞 가장 가까운 날짜)'
-            : '날짜로 읽히는 폴더가 둘 이상 있어야 고를 수 있습니다'
-        }
+        title={weekTitle}
       >
-        일주일
+        지난주
       </button>
 
       <SnapshotCombo
