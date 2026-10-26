@@ -38,6 +38,7 @@ const SHOTS = [
   ['11-viewoptions', 'viewoptions'],
   ['12-undo', 'undo'],
   ['13-help', 'help'],
+  ['14-allsame', 'allsame'],
 ]
 
 /**
