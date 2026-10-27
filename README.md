@@ -563,6 +563,39 @@ IX_*_TMP          이름이 맞는 인덱스·제약 (어느 테이블이든)
 **기본키가 바뀌면 `⚠` 를 올린다.** 빈도는 낮고 위험은 크다 (데이터 이관·중복).
 추가·삭제된 테이블에는 붙이지 않는다 — 거기서는 당연한 일이라 알림이 흔해지면 진짜 신호가 묻힌다.
 
+### 덤프 만들기 — `shl/schema-dump.sh`
+
+덤프 파일을 **내 PC 에서 만들어 서버에 올리는** 쉘 스크립트다. 웹 도구와 따로 돈다.
+윈도우에서는 `.cmd` 래퍼로 PowerShell · cmd 에서 바로 부른다 — 안에서 Git for Windows 의 bash 로 같은 `.sh` 를 돌리므로
+로직은 한 벌이다. `.ps1` 이 아닌 이유는 윈도우 기본 실행 정책(Restricted)에서 `.ps1` 은 막히기 때문이다.
+DB 는 PC 에서만 붙고 서버는 DB 에 못 붙는 환경이라, 조회는 PC 가 하고 서버는 파일만 받는다.
+배포본은 지금처럼 읽기만 하고, 배포 빌드에도 섞이지 않는다.
+
+```bash
+shl\install-oracle-client.cmd       # 한 번만 — Instant Client 19(sqlplus)를 shl/oracle/ 에 푼다
+shl\schema-dump.cmd prod            # 오늘 날짜로 조회 → shl/out/ 에 저장 → 서버에 업로드
+shl/schema-dump.sh prod             # Git Bash · 리눅스에서는 .sh 를 바로
+```
+
+| 파일 | 하는 일 |
+| ---- | ------- |
+| `change/schema-dump.env` | SSH · DB 접속 · 올릴 폴더. **커밋 안 됨**. 설정은 `config.ts` 와 한곳에 둔다. 호출할 때 따로 지정하지 않아도 스크립트가 찾는다 |
+| `shl/schema-dump.env.example` | 위 파일의 템플릿 (커밋됨). 위 파일이 없으면 이것을 복사해 만들고 멈춘다 |
+| `change/check_table.sql` | 조회 SELECT. **커밋한다** — 사람마다 쿼리가 다르면 같은 DB 를 떠도 날짜끼리 없는 변경이 생긴다. 위 [파일 형식](#파일-형식)(헤더 `PROMPT` + `[종류],…` 줄)만 지키면 고쳐도 된다 |
+| `shl/schema-dump.sh` | 위 SQL 앞뒤에 형식 설정(`SET`) · 오류 처리 · 접속을 붙여 실행하고 올린다. 치환 변수는 `&owner`(= `DB_OWNER`, 비었으면 접속 계정) 하나만 받는다 |
+| `shl/install-oracle-client.sh` | 설치가 아니라 **압축 해제**. SHA256 을 맞춰 보고 다르면 풀지 않는다 |
+| `shl/*.cmd` · `_git-bash.cmd` | 윈도우 래퍼. Git 의 bash 를 찾아 같은 이름의 `.sh` 를 부른다 (PATH 의 bash 는 WSL 일 수 있어 쓰지 않는다) |
+| `.gitattributes` | `.sh` 는 LF, `.cmd` 는 CRLF 로 고정 — `core.autocrlf=true` 인 PC 에서 받아도 bash 가 깨지지 않는다 |
+
+- **비밀번호는 저장하지 않는다.** 실행할 때마다 묻고, sqlplus 에는 표준입력으로 넘겨 프로세스 목록에도 안 보인다.
+- **덮어쓰지 않는다.** 같은 이름이 서버에 있으면 멈춘다 — 다시 뜨려면 `--force`.
+- 임시 이름으로 다 받은 뒤 이름을 바꾸므로, 업로드가 끊겨도 화면이 반쪽 파일을 읽지 않는다.
+- DB 오류(`ORA-` · `SP2-`)나 테이블 0개면 아무것도 올리지 않는다. sqlplus 는 `WHENEVER` 를 접속 뒤에 걸면
+  접속 실패에도 종료 코드 0 으로 끝나므로 접속 앞에 걸고, 그래도 잡히지 않는 `SP2-` 는 출력 글자로 가린다.
+- SQL 파일에 `&owner` 말고 다른 치환 변수가 있으면 실행 전에 멈춘다 — sqlplus 가 값을 물으며 다음 SQL 줄을
+  값으로 삼켜 조용히 엉뚱한 결과를 내기 때문이다. 메모장이 붙인 BOM · CRLF 는 걷어내고 넘긴다.
+- SSH 는 비교 화면과 같은 규칙 — 키가 없으면 ssh 가 비밀번호를 묻는다 (업로드는 한 번).
+
 ---
 
 ## 보고서 내려받기
@@ -619,11 +652,21 @@ GitHub 병합 버튼과 같은 방식 — 가장 많이 받는 통합은 한 번
 change/
   config.ts                 ★ 여기만 고치면 됨 — 위치 프리셋 · 훑기 설정 (커밋 안 됨)
   config.example.ts         위 파일의 템플릿 (커밋됨)
+  schema-dump.env           스키마 덤프 스크립트 설정 — SSH · DB 접속 (커밋 안 됨, 템플릿은 shl/)
+  check_table.sql           스키마 덤프 조회 SELECT (커밋됨 — 팀이 같은 쿼리로 뜬다)
 
 scripts/
   ensure-config.mjs         config.ts 가 없으면 example 을 복사해 만든다
   shoot.mjs                 사용설명서 스크린샷을 다시 뽑는다 (npm run shots)
   shot.html                 그 캡처용 페이지 — 실제 화면 위에 빨간 박스·번호를 얹는다
+
+shl/                        스키마 덤프를 PC 에서 만들어 서버에 올리는 쉘 스크립트 (웹 도구와 별개)
+  schema-dump.sh            조회 → shl/out/ 저장 → ssh 업로드
+  schema-dump.cmd           윈도우 PowerShell · cmd 에서 부르는 래퍼 (안에서 Git 의 bash 로 .sh 실행)
+  install-oracle-client.cmd 위와 같은 래퍼
+  _git-bash.cmd             두 래퍼가 함께 쓰는 bash 찾기
+  schema-dump.env.example   설정 템플릿 (실제 값은 change/schema-dump.env)
+  install-oracle-client.sh  sqlplus(Instant Client 19)를 shl/oracle/ 에 푼다 (커밋 안 됨)
 
 docs/
   사용설명서.md              사용자용 안내 (스크린샷 포함)
@@ -695,6 +738,7 @@ Chrome·Edge 를 헤드리스로 띄워 찍으므로 따로 받을 것이 없다
 ## 알아둘 점
 
 - 대상 폴더는 **읽기만** 한다. 쓰기·삭제 API 는 없다 (로컬·SSH 모두).
+  서버에 쓰는 것은 따로 실행하는 `shl/schema-dump.sh` 하나뿐이고, 웹 도구는 그것을 부르지 않는다.
 - SSH 비밀번호는 **어디에서도 다루지 않는다.** 받지도, 보관하지도, 대신 답하지도 않는다 —
   인증은 ssh 가 개인키·ssh-agent 로 처리한다.
 - 패키지 = 날짜 폴더 **바로 아래 디렉터리**. 날짜 폴더에 바로 놓인 파일은 `(루트)` 로 묶인다.
