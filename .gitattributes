@@ -1,0 +1,5 @@
+# core.autocrlf=true 인 윈도우에서 받아도 줄끝이 바뀌지 않게 고정한다.
+# 쉘 스크립트가 CRLF 가 되면 bash 가 `$'\r': command not found` 로 죽는다.
+*.sh text eol=lf
+# 배치 파일은 LF 면 cmd 가 goto 레이블 · 괄호 블록을 잘못 읽는 경우가 있다.
+*.cmd text eol=crlf
