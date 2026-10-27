@@ -11,3 +11,9 @@ backend_prev/
 # 실제로 쓰는 설정 — 서버 주소·계정이 들어가므로 커밋하지 않는다.
 # 없으면 change/config.example.ts 를 복사해 자동으로 만들어 준다 (scripts/ensure-config.mjs).
 change/config.ts
+# 스키마 덤프(shl/schema-dump.sh) 설정. 없으면 shl/schema-dump.env.example 을 복사해 만들어 준다.
+change/schema-dump.env
+
+# 스키마 덤프가 받은 프로그램(sqlplus) · 만든 파일
+shl/oracle/
+shl/out/
