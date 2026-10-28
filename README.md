@@ -653,6 +653,7 @@ change/
   config.ts                 ★ 여기만 고치면 됨 — 위치 프리셋 · 훑기 설정 (커밋 안 됨)
   config.example.ts         위 파일의 템플릿 (커밋됨)
   schema-dump.env           스키마 덤프 스크립트 설정 — SSH · DB 접속 (커밋 안 됨, 템플릿은 shl/)
+  deploy.env                배포 · 롤백 스크립트 설정 — SSH · 빌드 · 옮길 것 · 서버 명령 (커밋 안 됨, 템플릿은 shl/)
   check_table.sql           스키마 덤프 조회 SELECT (커밋됨 — 팀이 같은 쿼리로 뜬다)
 
 scripts/
@@ -660,7 +661,12 @@ scripts/
   shoot.mjs                 사용설명서 스크린샷을 다시 뽑는다 (npm run shots)
   shot.html                 그 캡처용 페이지 — 실제 화면 위에 빨간 박스·번호를 얹는다
 
-shl/                        스키마 덤프를 PC 에서 만들어 서버에 올리는 쉘 스크립트 (웹 도구와 별개)
+shl/                        PC 에서 돌리는 쉘 스크립트 — 스키마 덤프 · 배포 (웹 도구와 별개)
+  deploy.sh                 빌드 → ssh 로 서버에 옮기기 → 서버 명령 실행
+  deploy.cmd                위의 윈도우 래퍼
+  deploy-rollback.sh        배포 서버에서 되돌리기 명령만 실행 (루트의 rollback.sh 를 부르는 쪽)
+  deploy-rollback.cmd       위의 윈도우 래퍼
+  deploy.env.example        배포 · 롤백 설정 템플릿 (실제 값은 change/deploy.env)
   schema-dump.sh            조회 → shl/out/ 저장 → ssh 업로드
   schema-dump.cmd           윈도우 PowerShell · cmd 에서 부르는 래퍼 (안에서 Git 의 bash 로 .sh 실행)
   install-oracle-client.cmd 위와 같은 래퍼
@@ -732,6 +738,39 @@ dev·build·test·typecheck 는 시작 전에 `change/config.ts` 가 있는지 �
 Chrome·Edge 를 헤드리스로 띄워 찍으므로 따로 받을 것이 없다 (없으면 `CHROME_PATH` 로
 경로를 알려주면 된다). 박스와 번호는 [`scripts/shot.html`](scripts/shot.html) 이
 **실제 요소 좌표를 읽어** 그리므로, 화면이 조금 움직여도 엉뚱한 곳을 가리키지 않는다.
+
+---
+
+## 배포하기 — `shl/deploy.sh`
+
+내 PC 에서 **빌드 → ssh 로 서버에 옮기기 → 서버에서 명령 실행** 을 한 번에 한다.
+윈도우에서는 스키마 덤프와 같은 `.cmd` 래퍼로 PowerShell · cmd 에서 바로 부른다.
+
+```bash
+shl\deploy.cmd                # 빌드 → 옮기기 → 서버 명령
+shl\deploy.cmd --skip-build   # 이미 만든 빌드를 그대로 옮긴다
+shl\deploy.cmd --no-run       # 옮기기만 한다
+shl\deploy-rollback.cmd       # 되돌리기 — 서버에서 ROLLBACK_CMD 만 실행
+shl/deploy.sh                 # Git Bash · 리눅스에서는 .sh 를 바로
+```
+
+처음 실행하면 `change/deploy.env` 를 템플릿(`shl/deploy.env.example`)에서 만들고 멈춘다. 채울 것:
+
+| 값 | 기본 | 설명 |
+| -- | ---- | ---- |
+| `SSH_HOST` · `SSH_USER` · `SSH_PORT` · `SSH_IDENTITY` | | 배포할 서버. 인증은 비교 화면과 같이 ssh 에 맡긴다 |
+| `BUILD_CMD` | `npm run build` | 빌드 명령 |
+| `BUILD_DIR` | (저장소 루트) | 빌드를 돌리고 옮길 것을 찾는 폴더 |
+| `DEPLOY_FILES` | `dist_next backend_next update.sh rollback.sh` | 옮길 것. `BUILD_DIR` 바로 아래 이름만 (`/` · `..` 불가) |
+| `REMOTE_DIR` | `~/code-diff` | 올릴 서버 폴더. 서버 명령도 여기서 돈다 |
+| `REMOTE_CMD` | `bash update.sh` | 옮긴 뒤 실행할 명령. 비우면 옮기기만. 재시작까지 하려면 `bash update.sh && pm2 restart code-diff` 처럼 잇는다 |
+| `ROLLBACK_CMD` | `bash rollback.sh` | `shl\deploy-rollback.cmd` 가 `REMOTE_DIR` 에서 실행할 명령. 재시작까지 하려면 위와 같이 잇는다 |
+
+- **빌드가 실패하면 서버에 붙지 않는다.** 옮길 것이 하나라도 없어도 마찬가지다.
+- 서버에는 임시 폴더(`.deploy.tmp`)에 다 푼 뒤에만 같은 이름을 바꿔 끼운다 — 전송이 끊기면 기존 파일은 그대로고 서버 명령도 돌지 않는다.
+- 서버 명령이 실패하면 파일은 이미 옮겨진 상태다. `shl\deploy-rollback.cmd` 로 되돌리라고 안내하고 실패로 끝난다.
+- 롤백은 빌드 · 전송 없이 ssh 로 `ROLLBACK_CMD` 만 실행한다. 배포와 같은 서버 · 폴더를 쓰므로 설정도 `change/deploy.env` 한 벌이다.
+- 전송은 `tar | ssh` 한 번, 명령은 ssh 한 번 — 공개키가 없으면 비밀번호를 **두 번** 묻는다.
 
 ---
 
