@@ -13,6 +13,8 @@ backend_prev/
 change/config.ts
 # 스키마 덤프(shl/schema-dump.sh) 설정. 없으면 shl/schema-dump.env.example 을 복사해 만들어 준다.
 change/schema-dump.env
+# 배포(shl/deploy.sh) 설정. 없으면 shl/deploy.env.example 을 복사해 만들어 준다.
+change/deploy.env
 
 # 스키마 덤프가 받은 프로그램(sqlplus) · 만든 파일
 shl/oracle/
